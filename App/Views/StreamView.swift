@@ -6,6 +6,7 @@ struct StreamView: View {
 
 	@Environment(SettingsStore.self) private var settingsStore
 	@Environment(HostStore.self) private var hosts
+	@Environment(BitrateMemory.self) private var bitrateMemory
 	@Environment(\.dismiss) private var dismiss
 	@Environment(\.scenePhase) private var scenePhase
 	@State private var session: StreamSession?
@@ -37,9 +38,24 @@ struct StreamView: View {
 	@State private var noGameToQuit = false
 	/// The iPhone keyboard is up, typing into the game
 	@State private var showKeyboard = false
+	/// Auto bitrate's key for this PC on the Wi-Fi network the stream started on (nil on mobile data)
+	@State private var bitrateKey: String?
 
 	/// The shared settings with this PC's own video settings on top
-	private var settings: StreamSettings { settingsStore.settings.applying(hosts.host(id: host.id)?.settings.video) }
+	private var baseSettings: StreamSettings { settingsStore.settings.applying(hosts.host(id: host.id)?.settings.video) }
+
+	/// The maximum bitrate Auto bitrate has learned for this PC on this network
+	private var learnedBitrate: Int? {
+		guard baseSettings.autoBitrate, let bitrateKey else { return nil }
+		return bitrateMemory.bitrate(for: bitrateKey)
+	}
+
+	/// What the stream uses: the settings above with any learned bitrate
+	private var settings: StreamSettings {
+		var settings = baseSettings
+		if let learnedBitrate { settings.bitrateMbps = StreamSettings.clampBitrate(learnedBitrate) }
+		return settings
+	}
 
 	private var wantsVirtualControls: Bool {
 		switch settings.virtualControls {
@@ -148,6 +164,15 @@ struct StreamView: View {
 				overlay(for: session)
 			}
 
+			if let session, session.state == .streaming, !showMenu, !folded, !portrait {
+				if let check = session.connectionCheck {
+					connectionCheckProgress(check, session: session)
+				} else if let result = session.connectionCheckResult {
+					connectionCheckResult(result, session: session)
+						.frame(maxWidth: .infinity, maxHeight: .infinity)
+				}
+			}
+
 			if showSettingsHint && !showMenuButton {
 				settingsHint.transition(.opacity)
 			}
@@ -202,6 +227,8 @@ struct StreamView: View {
 	}
 
 	private func startSession() {
+		bitrateKey = LocalNetwork.currentKey().map { BitrateMemory.key(host: host.id, network: $0) }
+		if let learnedBitrate { log.notice("Auto bitrate: using \(learnedBitrate) Mbps learned for this PC and network") }
 		let session = hosts.makeSession(for: host, settings: settings)
 		if let orientation = interfaceOrientation {
 			session.input.interfaceOrientation = orientation
@@ -214,7 +241,16 @@ struct StreamView: View {
 	}
 
 	private func stop() {
-		session?.stop()
+		if let session {
+			session.stop()
+			// Learn from how it went, for the next stream from this PC on this network
+			if baseSettings.autoBitrate, let bitrateKey {
+				let starting = baseSettings.bitrateCapKbps / 1000
+				for report in session.qualityReports {
+					bitrateMemory.record(report, for: bitrateKey, starting: starting)
+				}
+			}
+		}
 		session = nil
 		AppDelegate.setStreaming(false)
 	}
@@ -599,6 +635,87 @@ struct StreamView: View {
 		return quitGameArmed ? "Press again to quit the game" : "Quit game"
 	}
 
+	// MARK: - Check connection
+
+	private func connectionCheckProgress(_ check: ConnectionCheck, session: StreamSession) -> some View {
+		HStack(spacing: 10) {
+			ProgressView(value: check.progress)
+				.progressViewStyle(.circular)
+				.tint(.white)
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Checking the connection… \(check.secondsLeft) s").font(.subheadline.weight(.semibold))
+				Text("Keep playing, ideally something busy").font(.caption).foregroundStyle(.white.opacity(0.7))
+			}
+			Button("Cancel") { session.dismissConnectionCheck() }
+				.font(.subheadline.weight(.semibold))
+				.buttonStyle(.bordered)
+				.tint(.white)
+		}
+		.foregroundStyle(.white)
+		.padding(.horizontal, 14)
+		.padding(.vertical, 8)
+		.background(.black.opacity(0.7), in: Capsule())
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+		.padding(.top, 16)
+	}
+
+	private func connectionCheckResult(_ result: ConnectionCheckResult, session: StreamSession) -> some View {
+		let (symbol, colour): (String, Color) = switch result.verdict {
+		case .good, .roomToGrow: ("checkmark.circle.fill", .green)
+		case .minorHiccups: ("exclamationmark.circle.fill", .yellow)
+		case .tooHigh: ("exclamationmark.triangle.fill", .orange)
+		case .inconclusive: ("questionmark.circle.fill", .secondary)
+		}
+		return VStack(alignment: .leading, spacing: 10) {
+			Label {
+				Text(result.title).font(.headline)
+			} icon: {
+				Image(systemName: symbol).foregroundStyle(colour)
+			}
+			Text(result.detail)
+				.font(.subheadline)
+				.fixedSize(horizontal: false, vertical: true)
+			HStack {
+				if let rate = result.bitrateMbps {
+					Button("Use \(rate) Mbps next time") {
+						useBitrateNextTime(rate)
+						session.dismissConnectionCheck()
+					}
+					.buttonStyle(.borderedProminent)
+					Button("Keep current") { session.dismissConnectionCheck() }
+						.buttonStyle(.bordered)
+				} else {
+					Button("OK") { session.dismissConnectionCheck() }
+						.buttonStyle(.borderedProminent)
+				}
+				Spacer()
+				Button("Check again") { session.startConnectionCheck() }
+					.buttonStyle(.bordered)
+			}
+			if result.bitrateMbps != nil {
+				Text("The maximum bitrate is set when a stream starts, so this applies from your next stream.")
+					.font(.caption).foregroundStyle(.secondary)
+			}
+		}
+		.padding(16)
+		.frame(maxWidth: 460)
+		.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+	}
+
+	/// With Auto bitrate on Wi-Fi it's remembered for this PC on this network. Otherwise it
+	/// becomes the Maximum bitrate setting: this PC's own if it has one, or the shared one.
+	private func useBitrateNextTime(_ rate: Int) {
+		let mbps = rate >= StreamSettings.maxBitrateMbps ? StreamSettings.automaticBitrate : StreamSettings.clampBitrate(rate)
+		if baseSettings.autoBitrate, let bitrateKey {
+			bitrateMemory.setManual(rate, for: bitrateKey)
+		} else if var saved = hosts.host(id: host.id), saved.settings.video != nil {
+			saved.settings.video?.bitrateMbps = mbps
+			hosts.update(saved)
+		} else {
+			settingsStore.settings.bitrateMbps = mbps
+		}
+	}
+
 	private var menuRows: [GamepadRow] {
 		let mic: [GamepadRow] = session?.micActive == true
 			? [GamepadRow(id: "mic", confirmLabel: session?.micMuted == true ? "Unmute" : "Mute",
@@ -613,6 +730,14 @@ struct StreamView: View {
 			}),
 			GamepadRow(id: "quit", confirmLabel: quitArmed ? "Confirm quit" : "Quit", activate: {
 				if quitArmed { quit() } else { quitArmed = true }
+			}),
+			GamepadRow(id: "connection", confirmLabel: session?.connectionCheck != nil ? "Stop" : "Check", activate: {
+				if session?.connectionCheck != nil {
+					session?.dismissConnectionCheck()
+				} else {
+					session?.startConnectionCheck()
+					showMenu = false
+				}
 			}),
 		] + StreamSettingsForm.gamepadRows(menuSettings, showsVideo: false) { menuNavigation.open($0) }
 	}
@@ -657,7 +782,27 @@ struct StreamView: View {
 				// Resolution, frame rate, bitrate, codec and HDR are fixed once the stream starts
 				if let session {
 					VideoSettingsSummary(settings: session.streamSettings, stats: session.stats,
-						customHostName: hosts.host(id: host.id)?.settings.video != nil ? host.name : nil)
+						customHostName: hosts.host(id: host.id)?.settings.video != nil ? host.name : nil,
+						learnedBitrate: learnedBitrate != nil)
+				}
+				Section {
+					if session?.connectionCheck != nil {
+						Button("Stop the connection check", role: .destructive) { session?.dismissConnectionCheck() }
+							.gamepadRow("connection")
+					} else {
+						Button {
+							session?.startConnectionCheck()
+							showMenu = false
+						} label: {
+							Label("Check connection", systemImage: "wifi")
+						}
+						.disabled(session?.state != .streaming)
+						.gamepadRow("connection")
+					}
+				} header: {
+					Text("Connection")
+				} footer: {
+					Text("Watches the next \(ConnectionCheck.duration) seconds of the stream for lost video, then suggests a maximum bitrate for your next stream. Play something with plenty of movement while it checks, since the PC sends much less on menus and quiet scenes.")
 				}
 				StreamSettingsForm(settings: menuSettings, showsVideo: false)
 			}

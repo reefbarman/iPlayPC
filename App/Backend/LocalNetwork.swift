@@ -74,6 +74,27 @@ enum LocalNetwork {
 		return nil
 	}
 
+	/// The Wi-Fi network the phone is on, as its subnet (e.g. "192.168.50.0/24"), or nil
+	/// when it isn't on Wi-Fi. Naming the network (SSID) needs an entitlement and location
+	/// access, so the subnet stands in for it. Auto bitrate always pairs it with a PC, so two
+	/// places that happen to share a subnet only mix up if they share a PC too.
+	static func currentKey() -> String? {
+		var ifs: UnsafeMutablePointer<ifaddrs>?
+		guard getifaddrs(&ifs) == 0, let first = ifs else { return nil }
+		defer { freeifaddrs(ifs) }
+		for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+			let entry = pointer.pointee
+			guard String(cString: entry.ifa_name) == "en0",
+				let addr = entry.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET),
+				let netmask = entry.ifa_netmask
+			else { continue }
+			let ip = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+			let mask = netmask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+			return "\(format(ip & mask))/\(mask.nonzeroBitCount)"
+		}
+		return nil
+	}
+
 	static func format(_ ip: UInt32) -> String {
 		"\(ip >> 24 & 0xFF).\(ip >> 16 & 0xFF).\(ip >> 8 & 0xFF).\(ip & 0xFF)"
 	}

@@ -186,6 +186,9 @@ struct StreamSettings: Codable, Equatable {
 	var fps: Int = 60
 	/// 0 is Automatic
 	var bitrateMbps: Int = automaticBitrate
+	/// Learn the maximum bitrate that works for each PC on each Wi-Fi network (BitrateMemory).
+	/// Used when a stream starts.
+	var autoBitrate: Bool = true
 	/// H.265 when the PC can send it, otherwise Steam falls back to H.264
 	var codec: VideoCodecChoice = .h265
 	/// HDR10. Needs H.265, an HDR screen and a game that supports it.
@@ -268,6 +271,7 @@ struct StreamSettings: Codable, Equatable {
 		let savedFPS = try c.decodeIfPresent(Int.self, forKey: .fps) ?? d.fps
 		fps = Self.fpsOptions.contains(savedFPS) ? savedFPS : d.fps
 		bitrateMbps = Self.clampBitrate(try c.decodeIfPresent(Int.self, forKey: .bitrateMbps) ?? d.bitrateMbps)
+		autoBitrate = try c.decodeIfPresent(Bool.self, forKey: .autoBitrate) ?? d.autoBitrate
 		codec = (try? c.decodeIfPresent(VideoCodecChoice.self, forKey: .codec)) ?? d.codec
 		hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
 		displayMode = (try? c.decodeIfPresent(DisplayMode.self, forKey: .displayMode)) ?? d.displayMode

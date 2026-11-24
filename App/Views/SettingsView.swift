@@ -24,10 +24,10 @@ struct StreamSettingsForm: View {
 		}
 	}
 
-	/// The rows above, for a controller
+	/// The rows above, for a controller. `bitrateMemory` adds Auto bitrate's rows to the video ones.
 	static func gamepadRows(_ settings: Binding<StreamSettings>, showsVideo: Bool = true,
-		open: @escaping (SettingsPage) -> Void) -> [GamepadRow] {
-		(showsVideo ? VideoSettingsSection.gamepadRows(settings) : [])
+		bitrateMemory: BitrateMemory? = nil, open: @escaping (SettingsPage) -> Void) -> [GamepadRow] {
+		(showsVideo ? VideoSettingsSection.gamepadRows(settings, bitrateMemory: bitrateMemory) : [])
 			+ [SettingsPage.display, .controller, .virtualControls, .audio].map { page in
 				GamepadRow.link(page.rowID) { open(page) }
 			}
@@ -498,8 +498,10 @@ struct VideoSettingsSection: View {
 	@Binding var settings: StreamSettings
 	var customHostName: String?
 
-	/// The rows below, for a controller
-	static func gamepadRows(_ settings: Binding<StreamSettings>) -> [GamepadRow] {
+	@Environment(BitrateMemory.self) private var bitrateMemory
+
+	/// The rows below, for a controller. Auto bitrate's rows (shared settings only) come with `bitrateMemory`.
+	static func gamepadRows(_ settings: Binding<StreamSettings>, bitrateMemory: BitrateMemory? = nil) -> [GamepadRow] {
 		let s = settings.wrappedValue
 		var rows = [
 			GamepadRow.picker("video.resolution", settings.resolution, StreamResolution.allCases),
@@ -516,6 +518,12 @@ struct VideoSettingsSection: View {
 		}
 		if StreamSettings.screenSupportsHDR || s.hdr {
 			rows.append(.toggle("video.hdr", settings.hdr))
+		}
+		if let bitrateMemory {
+			rows.append(.toggle("video.autoBitrate", settings.autoBitrate))
+			if s.autoBitrate && !bitrateMemory.entries.isEmpty {
+				rows.append(GamepadRow(id: "video.forgetBitrates", confirmLabel: "Forget", activate: { bitrateMemory.forgetAll() }))
+			}
 		}
 		return rows
 	}
@@ -557,6 +565,18 @@ struct VideoSettingsSection: View {
 				Text("To give a PC its own video settings, open its settings from the PC list.")
 			}
 		}
+		if customHostName == nil {
+			Section {
+				Toggle("Auto bitrate", isOn: $settings.autoBitrate)
+					.gamepadRow("video.autoBitrate")
+				if settings.autoBitrate && !bitrateMemory.entries.isEmpty {
+					Button("Forget learned bitrates", role: .destructive) { bitrateMemory.forgetAll() }
+						.gamepadRow("video.forgetBitrates")
+				}
+			} footer: {
+				Text("Learns the maximum bitrate that works for each PC on each Wi-Fi network. After a stream that dropped video it asks for less next time, and after a long clean one it tries a little more, up to Maximum bitrate. On mobile data, Maximum bitrate is used as is.")
+			}
+		}
 	}
 }
 
@@ -571,12 +591,14 @@ struct VideoSettingsSummary: View {
 	let settings: StreamSettings
 	let stats: StreamStats
 	var customHostName: String?
+	/// The maximum bitrate came from Auto bitrate
+	var learnedBitrate = false
 
 	var body: some View {
 		Section {
 			LabeledContent("Resolution", value: settings.resolution.label)
 			LabeledContent("Frame rate", value: "\(settings.fps) fps")
-			LabeledContent("Maximum bitrate", value: settings.bitrateLabel)
+			LabeledContent(learnedBitrate ? "Maximum bitrate (Auto)" : "Maximum bitrate", value: settings.bitrateLabel)
 			LabeledContent("Codec", value: settings.effectiveCodec.label)
 			LabeledContent("HDR", value: settings.hdr ? "On" : "Off")
 			if stats.width > 0 {
@@ -742,11 +764,12 @@ struct HostSettingsView: View {
 /// The stream settings shared by every PC
 struct SettingsView: View {
 	@Environment(SettingsStore.self) private var store
+	@Environment(BitrateMemory.self) private var bitrateMemory
 	@Environment(\.dismiss) private var dismiss
 	@State private var navigation = SettingsNavigation()
 
 	private var rows: [GamepadRow] {
-		StreamSettingsForm.gamepadRows(settingsBinding) { navigation.open($0) }
+		StreamSettingsForm.gamepadRows(settingsBinding, bitrateMemory: bitrateMemory) { navigation.open($0) }
 	}
 
 	private var settingsBinding: Binding<StreamSettings> {

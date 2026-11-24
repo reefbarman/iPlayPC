@@ -54,6 +54,13 @@ On an iPhone or iPad with an HDR screen, turn on **HDR** under Settings (it swit
 
 Turn on **Settings › Audio › Microphone** (off by default) to send your voice to the PC, where games, Discord and Steam hear it as the PC's microphone. It takes effect the next time you connect. While streaming, tap the mic button in the bottom-left corner, or use **Mute microphone** in the stream menu, to mute it. On the phone's speaker iPlayPC uses echo cancellation, so the game audio doesn't feed back into the mic.
 
+## Connection
+
+Steam adjusts the bitrate itself while you play, up to **Maximum bitrate** (Automatic, 100 Mbps, by default). Two things help it fit your Wi-Fi:
+
+- **Auto bitrate** (Settings, on by default) learns the maximum that works for each PC on each Wi-Fi network. After a stream that dropped video it asks for less next time, and after a long clean stream it tries a little more, never above your **Maximum bitrate**. Until a stream drops video (or you pick a bitrate with Check connection), your setting is used as is. On mobile data the setting is always used as is. **Forget learned bitrates** clears what it has learned.
+- **Check connection** (stream menu, under Connection) watches the next 20 seconds of the stream for lost video, then tells you how the connection is doing and can suggest a maximum. Tap **Use … Mbps next time** to use it from your next stream: with Auto bitrate on it's remembered for that PC on that network, otherwise it becomes your **Maximum bitrate** (the PC's own, if it has custom video settings). Play something busy while it checks, since the PC sends much less on menus and quiet scenes.
+
 ## Quitting
 
 The stream menu has two ways out:
@@ -67,7 +74,7 @@ Both close the game the way you would at the PC (Alt+F4 on Windows and Linux, Cm
 
 Tap the gear on the PC list. Everything has a sensible default, so you only need to change what bothers you:
 
-- **Video:** resolution, frame rate, maximum bitrate, codec (H.264 or H.265) and HDR. Each PC can have its own in its PC settings.
+- **Video:** resolution, frame rate, maximum bitrate, codec (H.264 or H.265) and HDR. Each PC can have its own in its PC settings. **Auto bitrate** sits below them (see [Connection](#connection)).
 - **Display, Controller (including Gyro aiming), Virtual controls and Audio** each have their own page.
 - **About:** the version, a link to the exact source the build came from, and **Licences** for everything bundled into the app.
 

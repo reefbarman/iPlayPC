@@ -9,10 +9,11 @@ struct StreamStats: Equatable {
 	var width: Int = 0
 	var height: Int = 0
 	var decodeMs: Double = 0
-	var pingMs: Double = 0
-	/// Packets lost in the last second, and since connecting
-	var packetsLost = 0
-	var totalPacketsLost = 0
+	/// Video frames lost (never arrived, or failed to decode) in the last second, and since connecting
+	var framesLost = 0
+	var totalFramesLost = 0
+	/// Share of the last second's frames that were lost, 0...1
+	var videoLoss: Double = 0
 	var controller: String?
 	/// The screen's refresh rate, 0 if unknown
 	var displayHz: Double = 0
@@ -39,6 +40,8 @@ private final class VideoSink: @unchecked Sendable {
 	private let tenBit: Bool
 	private(set) var frames = 0
 	private(set) var bytes = 0
+	/// Frames that arrived but couldn't be decoded
+	private(set) var failed = 0
 
 	init(renderer: MetalRenderer, tenBit: Bool) {
 		self.renderer = renderer
@@ -58,16 +61,16 @@ private final class VideoSink: @unchecked Sendable {
 		let ok = decoder.decode(base, count: data.count)
 		lock.withLock {
 			bytes += data.count
-			if ok { frames += 1 }
+			if ok { frames += 1 } else { failed += 1 }
 		}
 		return ok
 	}
 
-	/// Frames decoded and bytes received so far, the last decode time and the picture size
-	func sample() -> (frames: Int, bytes: Int, decodeMs: Double, width: Int, height: Int) {
+	/// Frames decoded, failed and bytes received so far, the last decode time and the picture size
+	func sample() -> (frames: Int, failed: Int, bytes: Int, decodeMs: Double, width: Int, height: Int) {
 		lock.withLock {
 			let size = decoder?.dimensions
-			return (frames, bytes, decoder?.lastDecodeMs ?? 0, Int(size?.width ?? 0), Int(size?.height ?? 0))
+			return (frames, failed, bytes, decoder?.lastDecodeMs ?? 0, Int(size?.width ?? 0), Int(size?.height ?? 0))
 		}
 	}
 
@@ -104,6 +107,19 @@ final class StreamSession {
 	/// Streaming for a few seconds without a single frame. Usually a Mac host where Steam
 	/// isn't allowed to record the screen yet (the permission prompt can hide behind Steam).
 	private(set) var noPicture = false
+	/// Check connection: running, or its verdict waiting to be read
+	private(set) var connectionCheck: ConnectionCheck?
+	private(set) var connectionCheckResult: ConnectionCheckResult?
+	/// How each connection went, for Auto bitrate (Play again adds another)
+	@ObservationIgnored private(set) var qualityReports: [StreamQualityReport] = []
+	/// The maximum bitrate the current connection asked for (Play again changes `streamSettings` first)
+	@ObservationIgnored private var qualityBitrate = 0
+	@ObservationIgnored private var qualityStreamingSeconds = 0
+	@ObservationIgnored private var qualitySeconds = 0
+	@ObservationIgnored private var qualityLossSum: Double = 0
+	@ObservationIgnored private var qualityPeak: Double = 0
+	@ObservationIgnored private var qualityLostAtStart = 0
+	@ObservationIgnored private var qualityLost = 0
 
 	let host: PCHost
 
@@ -130,7 +146,7 @@ final class StreamSession {
 	@ObservationIgnored private var heldMouseButtons: Set<MouseButton> = []
 	@ObservationIgnored private var mouseRemainder = CGVector.zero
 	@ObservationIgnored private var statsTimer: Timer?
-	@ObservationIgnored private var lastSample: (frames: Int, bytes: Int, time: CFTimeInterval)?
+	@ObservationIgnored private var lastSample: (frames: Int, lost: Int, bytes: Int, time: CFTimeInterval)?
 	@ObservationIgnored private var streamingSince: CFTimeInterval = 0
 	@ObservationIgnored private var lastGenerated = 0
 	@ObservationIgnored private var lastSkipped = 0
@@ -186,6 +202,13 @@ final class StreamSession {
 		lastSkipped = renderer.skippedFrames
 		lastRepeated = renderer.repeatedFrames
 		lastSample = nil
+		qualityBitrate = s.bitrateCapKbps / 1000
+		qualityStreamingSeconds = 0
+		qualitySeconds = 0
+		qualityLossSum = 0
+		qualityPeak = 0
+		qualityLostAtStart = 0
+		qualityLost = 0
 
 		connectTask = Task { [weak self, backend, host] in
 			do {
@@ -298,6 +321,9 @@ final class StreamSession {
 	}
 
 	private func teardown(quittingGame: Bool = false) {
+		finishQualityReport()
+		// A new connection starts fresh counters, so a check in progress can't carry on
+		connectionCheck = nil
 		streamID &+= 1
 		micActive = false
 		connectTask?.cancel()
@@ -537,18 +563,23 @@ final class StreamSession {
 			noPicture = waiting
 			if waiting { consoleLog("No video from the PC after 5 s") }
 		}
-		defer { lastSample = (n.frames, n.bytes, now) }
+		let lost = (stream?.lostFrames() ?? 0) + n.failed
+		defer { lastSample = (n.frames, lost, n.bytes, now) }
 		guard let last = lastSample else { return }
 		let seconds = max(0.25, now - last.time)
 		var s = StreamStats()
 		s.fps = Double(n.frames - last.frames) / seconds
 		s.bitrateMbps = Double(n.bytes - last.bytes) * 8 / seconds / 1_000_000
+		s.totalFramesLost = lost
+		s.framesLost = max(0, lost - last.lost)
+		let arrived = max(0, n.frames - last.frames) + s.framesLost
+		s.videoLoss = arrived > 0 ? Double(s.framesLost) / Double(arrived) : 0
 		s.width = n.width
 		s.height = n.height
 		s.decodeMs = n.decodeMs
 		s.controller = input.controllerName
 		if Int(now) % 10 == 0 {
-			let line = "Stream \(s.width)x\(s.height) \(Int(s.fps)) fps \(String(format: "%.1f", s.bitrateMbps)) Mbps, decode \(String(format: "%.1f", s.decodeMs)) ms, audio buffered \(stream?.audioBuffered() ?? 0)"
+			let line = "Stream \(s.width)x\(s.height) \(Int(s.fps)) fps \(String(format: "%.1f", s.bitrateMbps)) Mbps, decode \(String(format: "%.1f", s.decodeMs)) ms, \(s.totalFramesLost) frames lost, audio buffered \(stream?.audioBuffered() ?? 0)"
 			log.info("\(line, privacy: .public)")
 			consoleLog(line)
 		}
@@ -568,5 +599,60 @@ final class StreamSession {
 			lastRepeated = renderer.repeatedFrames
 		}
 		stats = s
+		sampleQuality(s)
+		sampleConnectionCheck(s)
+	}
+
+	// MARK: - Check connection
+
+	/// Watches the next few seconds of the stream, then suggests a bitrate for next time
+	func startConnectionCheck() {
+		guard state == .streaming else { return }
+		connectionCheckResult = nil
+		connectionCheck = ConnectionCheck()
+	}
+
+	func dismissConnectionCheck() {
+		connectionCheck = nil
+		connectionCheckResult = nil
+	}
+
+	private func sampleConnectionCheck(_ stats: StreamStats) {
+		// Paused (folded, another app): nothing useful to measure
+		guard var check = connectionCheck, state == .streaming, !paused else { return }
+		check.add(stats)
+		if check.isComplete {
+			let result = check.result(requested: streamSettings.bitrateCapKbps / 1000)
+			log.notice("Connection check: \(result.title, privacy: .public). \(result.detail, privacy: .public)")
+			connectionCheck = nil
+			connectionCheckResult = result
+		} else {
+			connectionCheck = check
+		}
+	}
+
+	// MARK: - Auto bitrate
+
+	/// Seconds after connecting that are left out: the start can be rough on any network
+	private static let qualityWarmupSeconds = 5
+
+	private func sampleQuality(_ s: StreamStats) {
+		guard state == .streaming, !paused else { return }
+		qualityStreamingSeconds += 1
+		if qualityStreamingSeconds == Self.qualityWarmupSeconds { qualityLostAtStart = s.totalFramesLost }
+		guard qualityStreamingSeconds > Self.qualityWarmupSeconds else { return }
+		qualitySeconds += 1
+		qualityLossSum += s.videoLoss
+		qualityPeak = max(qualityPeak, s.bitrateMbps)
+		qualityLost = s.totalFramesLost
+	}
+
+	private func finishQualityReport() {
+		guard qualitySeconds > 0 else { return }
+		qualityReports.append(StreamQualityReport(
+			bitrateMbps: qualityBitrate, seconds: qualitySeconds,
+			averageLoss: qualityLossSum / Double(qualitySeconds),
+			lostFrames: max(0, qualityLost - qualityLostAtStart), peakMbps: qualityPeak))
+		qualitySeconds = 0
 	}
 }

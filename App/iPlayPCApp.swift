@@ -17,12 +17,14 @@ struct iPlayPCApp: App {
 	@UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 	@State private var hosts = HostStore()
 	@State private var settings = SettingsStore()
+	@State private var bitrateMemory = BitrateMemory()
 
 	var body: some Scene {
 		WindowGroup {
 			HostListView()
 				.environment(hosts)
 				.environment(settings)
+				.environment(bitrateMemory)
 				.preferredColorScheme(.dark)
 				.background {
 					// Track the window shape so orientation follows fold/unfold
