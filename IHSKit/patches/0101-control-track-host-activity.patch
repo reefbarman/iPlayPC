@@ -1,0 +1,53 @@
+From: iPlayPC
+Subject: control: keep track of what the host is showing
+
+Steam sends k_EStreamControlSetActivity whenever the host switches between a
+game, the desktop, Big Picture (idle) and so on, with the game's appid. ihslib
+dropped it. Store the activity and appid in the session state so the app can
+tell whether a game is in front (it only closes the game when one is), and log
+each change.
+
+diff -ruN a/src/session/channels/ch_control.c b/src/session/channels/ch_control.c
+--- a/src/session/channels/ch_control.c	2026-11-24 14:35:52
++++ b/src/session/channels/ch_control.c	2026-11-24 14:35:52
+@@ -384,8 +384,22 @@
+             break;
+         }
+         case k_EStreamControlSetIcon:
+-        case k_EStreamControlSetActivity:
+             break;
++        case k_EStreamControlSetActivity: {
++            CSetActivityMsg *message = IHS_UNPACK_BUFFER(cset_activity_msg__unpack, payload);
++            if (message == NULL) {
++                IHS_SessionLog(channel->session, IHS_LogLevelWarn, "Control", "Malformed CSetActivityMsg");
++                break;
++            }
++            channel->session->state.activityAppId = message->has_appid ? message->appid : 0;
++            channel->session->state.activity = message->has_activity ? (int) message->activity
++                                                                     : k_EStreamActivityIdle;
++            IHS_SessionLog(channel->session, IHS_LogLevelInfo, "Control", "Set activity: %d, appid %u (%s)",
++                           channel->session->state.activity, channel->session->state.activityAppId,
++                           message->game_name != NULL ? message->game_name : "");
++            cset_activity_msg__free_unpacked(message, NULL);
++            break;
++        }
+         case k_EStreamControlRemoteHID: {
+             CRemoteHIDMsg *message = IHS_UNPACK_BUFFER(cremote_hidmsg__unpack, payload);
+             if (message == NULL) {
+diff -ruN a/src/session/session_pri.h b/src/session/session_pri.h
+--- a/src/session/session_pri.h	2026-11-24 14:35:52
++++ b/src/session/session_pri.h	2026-11-24 14:35:52
+@@ -72,6 +72,13 @@
+     bool streamingInput;
+     bool streamingAudio;
+     bool streamingVideo;
++    /**
++     * What the host is showing, from k_EStreamControlSetActivity: an EStreamActivity
++     * (0 until the host says) and the running game's appid. Written on the control
++     * thread, read by the app from any thread.
++     */
++    volatile int activity;
++    volatile uint32_t activityAppId;
+ } IHS_SessionState;
+ 
+ struct IHS_FrameStatsAggregator;

@@ -34,3 +34,4 @@ Copied from [jmelovich/Steam-Link-PS5](https://github.com/jmelovich/Steam-Link-P
 Make them with `diff -ruN a b` against a copy that already has every earlier patch applied (paths `a/src/...`, applied with `patch -p1`).
 
 - `0100` client: `IHS_ClientDiscoverAddress()` sends one discovery request to a given address instead of broadcasting. iOS blocks broadcast without the multicast entitlement, so the app sweeps its subnet and probes manual IPs with it.
+- `0101` control: `k_EStreamControlSetActivity` is stored in the session state (activity and appid) and logged instead of dropped, so the app only closes the game on the PC when Steam says a game is in front.
