@@ -23,6 +23,7 @@ Product rules (same as the sibling apps):
 Device builds, installs and git commands need to run natively: sandboxed `xcodebuild` can't reach the Metal toolchain or the keychain. Git routes GitHub over SSH on this machine, so fetches and submodule updates also run natively.
 
 ```sh
+git -C vendor/mbedtls submodule update --init --depth 1 framework   # once; mbedTLS 3.6's CMake needs it
 scripts/build-ihskit.sh   # -> Frameworks/IHSKit.xcframework
 xcodegen generate
 ```

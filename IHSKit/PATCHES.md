@@ -1,6 +1,6 @@
 # ihslib patches
 
-`scripts/build-ihskit.sh` copies `vendor/ihslib/{src,include}` into the build directory and applies `IHSKit/patches/*.patch` in order with `patch -p1`. `vendor/ihslib` itself is never edited.
+`IHSKit/CMakeLists.txt` (run by `scripts/build-ihskit.sh`) copies `vendor/ihslib/{src,include}` into the build directory and applies `IHSKit/patches/*.patch` in order with `patch -p1`; a rejected hunk fails the build. `vendor/ihslib` itself is never edited.
 
 Base: [scaronni/ihslib](https://github.com/scaronni/ihslib) `f68de5f0` (2026-10-04), which is upstream [mariotaku/ihslib](https://github.com/mariotaku/ihslib) master `1881b9a0` plus two commits implementing Steam's 2026 PIN-masked X25519 pairing. Without them current Steam answers `AuthorizationFailed` after the PIN is typed. The fork's `auth` branch has since been merged into its `master` (`04688d19`) and deleted, which is why we vendor a copy instead of using a submodule. Most of the patches below don't apply to that newer `master`; rebasing onto it is a possible later job.
 
@@ -31,4 +31,6 @@ Copied from [jmelovich/Steam-Link-PS5](https://github.com/jmelovich/Steam-Link-P
 
 ## Ours (`0100` and up)
 
-None yet. Expected first: unicast discovery (see `plans/build-plan.md`, step 1).
+Make them with `diff -ruN a b` against a copy that already has every earlier patch applied (paths `a/src/...`, applied with `patch -p1`).
+
+- `0100` client: `IHS_ClientDiscoverAddress()` sends one discovery request to a given address instead of broadcasting. iOS blocks broadcast without the multicast entitlement, so the app sweeps its subnet and probes manual IPs with it.

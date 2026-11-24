@@ -1,0 +1,57 @@
+From: iPlayPC
+Subject: client: send discovery to a given address
+
+iOS only lets an app broadcast or multicast with Apple's multicast entitlement,
+which sideloaded apps can't get, so IHS_ClientStartDiscovery's broadcast never
+leaves the phone. Add IHS_ClientDiscoverAddress(), which sends the same
+CMsgRemoteClientBroadcastDiscovery to one address. The app sweeps its subnet
+with it (and probes a manually entered IP); hosts reply to the sender, so the
+answers come back through the usual discovered callback.
+
+diff -ruN a/include/ihslib/client.h b/include/ihslib/client.h
+--- a/include/ihslib/client.h	2026-11-24 11:40:06
++++ b/include/ihslib/client.h	2026-11-24 11:40:41
+@@ -163,6 +163,18 @@
+ 
+ bool IHS_ClientStopDiscovery(IHS_Client *client);
+ 
++/**
++ * Send one discovery request straight to an address instead of broadcasting it.
++ *
++ * For platforms that can't broadcast (iOS without the multicast entitlement): sweep the subnet or probe a known
++ * address. Hosts answer to the sender, so replies arrive through the discovery callbacks as usual. A port of 0 means
++ * Steam's discovery port, 27036. Needs no discovery timer.
++ * @param client Client instance
++ * @param address Host address
++ * @return false if the packet couldn't be sent (for example before the client's socket is open)
++ */
++bool IHS_ClientDiscoverAddress(IHS_Client *client, const IHS_SocketAddress *address);
++
+ /* ----------------------------------------------------
+  * - Authorization functions
+  * ---------------------------------------------------- */
+diff -ruN a/src/client/discovery.c b/src/client/discovery.c
+--- a/src/client/discovery.c	2026-11-24 11:40:06
++++ b/src/client/discovery.c	2026-11-24 11:40:44
+@@ -94,6 +94,21 @@
+     IHS_BaseUnlock(&client->base);
+ }
+ 
++bool IHS_ClientDiscoverAddress(IHS_Client *client, const IHS_SocketAddress *address) {
++    if (address == NULL) {
++        return false;
++    }
++    IHS_SocketAddress target = *address;
++    if (target.port == 0) {
++        target.port = 27036;
++    }
++    CMsgRemoteClientBroadcastDiscovery discovery = CMSG_REMOTE_CLIENT_BROADCAST_DISCOVERY__INIT;
++    IHS_BaseLock(&client->base);
++    PROTOBUF_C_SET_VALUE(discovery, seq_num, client->discoverySeq++);
++    IHS_BaseUnlock(&client->base);
++    return IHS_ClientSend(client, target, k_ERemoteClientBroadcastMsgDiscovery, (ProtobufCMessage *) &discovery);
++}
++
+ static bool DiscoveryBroadcast(IHS_Client *client) {
+     CMsgRemoteClientBroadcastDiscovery discovery = CMSG_REMOTE_CLIENT_BROADCAST_DISCOVERY__INIT;
+     PROTOBUF_C_SET_VALUE(discovery, seq_num, client->discoverySeq++);

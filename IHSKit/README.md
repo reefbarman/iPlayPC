@@ -6,7 +6,7 @@ Steam Remote Play for iPlayPC. It's [ihslib](https://github.com/mariotaku/ihslib
 | ------------------------------ | -------------------------------------------------------------------------- |
 | `../vendor/ihslib`             | Untouched upstream source. Commit in `../Licenses/UPSTREAM_COMMITS`        |
 | `patches/`                     | Applied in order to a copy at build time. See `PATCHES.md`                 |
-| `CMakeLists.txt`               | iOS build of the patched copy and the bridge (to do)                       |
-| `include/ihs_bridge.h`, `src/` | The C API Swift sees, the POSIX thread backend and the HID devices (to do) |
+| `CMakeLists.txt`               | iOS build of the patched copy, mbedTLS, Opus, protobuf-c and the bridge    |
+| `include/ihs_bridge.h`, `src/` | The C API Swift sees, the POSIX thread backend and (later) the HID devices |
 
-Build with `scripts/build-ihskit.sh`, which writes `Frameworks/IHSKit.xcframework`.
+Build with `scripts/build-ihskit.sh`, which writes `Frameworks/IHSKit.xcframework`. mbedTLS 3.6 needs its nested submodule first: `git -C vendor/mbedtls submodule update --init --depth 1 framework`.
