@@ -107,6 +107,8 @@ final class StreamSession {
 	@ObservationIgnored let input = ControllerInput()
 	@ObservationIgnored private let audio = AudioOutput()
 	@ObservationIgnored private var stream: StreamConnection?
+	/// A text field on the PC wants typing (main thread)
+	@ObservationIgnored var onShowKeyboard: (() -> Void)?
 	@ObservationIgnored private var video: VideoSink?
 	@ObservationIgnored private var connectTask: Task<Void, Never>?
 	/// The settings the stream was started with: its resolution, frame rate, bitrate, codec and HDR
@@ -209,6 +211,14 @@ final class StreamSession {
 		stream.onLightbar = { r, g, b in feedback.lightbar(r: r, g: g, b: b) }
 		stream.onEnded = { [weak self] end in
 			DispatchQueue.main.async { MainActor.assumeIsolated { self?.streamEnded(end, id: id) } }
+		}
+		stream.onShowKeyboard = { [weak self] in
+			DispatchQueue.main.async {
+				MainActor.assumeIsolated {
+					guard let self, self.streamID == id else { return }
+					self.onShowKeyboard?()
+				}
+			}
 		}
 
 		input.gyroAimEnabled = settings.gyroAim != .off

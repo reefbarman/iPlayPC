@@ -14,6 +14,7 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	var onVideoFrame: ((UnsafeRawBufferPointer, Bool) -> Bool)?
 	var onRumble: ((Float, Float) -> Void)?
 	var onLightbar: ((UInt8, UInt8, UInt8) -> Void)?
+	var onShowKeyboard: (() -> Void)?
 	var onEnded: ((StreamEnd) -> Void)?
 
 	private struct State {
@@ -208,6 +209,9 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		}
 		callbacks.on_lightbar = { user, r, g, b in
 			SteamConnection.from(user)?.onLightbar?(r, g, b)
+		}
+		callbacks.on_show_keyboard = { user in
+			SteamConnection.from(user)?.onShowKeyboard?()
 		}
 
 		var grant = grant

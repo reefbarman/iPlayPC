@@ -503,6 +503,13 @@ static bool input_set_cursor(IHS_Session *session, uint64_t cursor_id, void *con
     return true;
 }
 
+static void input_show_keyboard(IHS_Session *session, void *context) {
+    IHKSession *s = context;
+    if (s->cb.on_show_keyboard != NULL) {
+        s->cb.on_show_keyboard(s->cb.user);
+    }
+}
+
 static const IHS_StreamSessionCallbacks session_callbacks = {
     .configuring = session_configuring,
     .connected = session_connected,
@@ -525,6 +532,7 @@ static const IHS_StreamAudioCallbacks audio_callbacks = {
 
 static const IHS_StreamInputCallbacks input_callbacks = {
     .setCursor = input_set_cursor,
+    .showOnScreenKeyboard = input_show_keyboard,
 };
 
 IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, const uint8_t secret_key[32],

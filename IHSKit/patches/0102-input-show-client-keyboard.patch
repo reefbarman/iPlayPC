@@ -1,0 +1,69 @@
+From: iPlayPC
+Subject: input: let the client bring up its own keyboard
+
+ihslib never told Steam the client has an on-screen keyboard, so a text field in
+Big Picture made the host draw its own keyboard into the stream. Advertise
+has_on_screen_keyboard in the client caps and hand k_EStreamControlShowOnScreenKeyboard
+(which Steam sends instead) to a new showOnScreenKeyboard input callback, so the
+app can bring up the phone's keyboard. Also log the number of unhandled control
+messages, since newer ones have no name in ihslib's protocol files.
+
+diff -ruN a/include/ihslib/input.h b/include/ihslib/input.h
+--- a/include/ihslib/input.h
++++ b/include/ihslib/input.h
+@@ -133,6 +133,12 @@
+      * IHS_SessionSendKeyDown/Up.
+      */
+     void (*setKeymap)(IHS_Session *session, const IHS_KeymapEntry *entries, size_t count, void *context);
++
++    /**
++     * A text field on the host wants typing: show the client's own keyboard.
++     * Only sent when the client advertises one (it always does). May be NULL.
++     */
++    void (*showOnScreenKeyboard)(IHS_Session *session, void *context);
+ } IHS_StreamInputCallbacks;
+ 
+ bool IHS_SessionSendMousePosition(IHS_Session *session, float x, float y);
+diff -ruN a/src/session/channels/ch_control.c b/src/session/channels/ch_control.c
+--- a/src/session/channels/ch_control.c
++++ b/src/session/channels/ch_control.c
+@@ -385,6 +385,14 @@
+         }
+         case k_EStreamControlSetIcon:
+             break;
++        case k_EStreamControlShowOnScreenKeyboard: {
++            IHS_SessionLog(channel->session, IHS_LogLevelInfo, "Control", "Show on-screen keyboard");
++            const IHS_StreamInputCallbacks *callbacks = channel->session->callbacks.input;
++            if (callbacks && callbacks->showOnScreenKeyboard) {
++                callbacks->showOnScreenKeyboard(channel->session, channel->session->callbackContexts.input);
++            }
++            break;
++        }
+         case k_EStreamControlSetActivity: {
+             CSetActivityMsg *message = IHS_UNPACK_BUFFER(cset_activity_msg__unpack, payload);
+             if (message == NULL) {
+@@ -439,9 +447,9 @@
+             ccontroller_personalization_update_msg__free_unpacked(message, NULL);
+             break;
+         }
+         default: {
+-            IHS_SessionLog(channel->session, IHS_LogLevelInfo, "Control", "Unhandled control message: %s",
+-                           ControlMessageTypeName(type));
++            IHS_SessionLog(channel->session, IHS_LogLevelInfo, "Control", "Unhandled control message: %s (%d)",
++                           ControlMessageTypeName(type), (int) type);
+             break;
+         }
+     }
+diff -ruN a/src/session/channels/ch_control_negotiation.c b/src/session/channels/ch_control_negotiation.c
+--- a/src/session/channels/ch_control_negotiation.c
++++ b/src/session/channels/ch_control_negotiation.c
+@@ -200,6 +200,9 @@
+              ihsConf.displayWidth > 0 && ihsConf.displayHeight > 0 ? (int) ihsConf.displayHeight : 1080);
+     clientCaps.system_info = systemInfo;
+     PROTOBUF_C_SET_VALUE(clientCaps, system_can_suspend, true);
++    // We bring up our own keyboard when the host asks (ShowOnScreenKeyboard), instead
++    // of the host drawing Big Picture's into the stream
++    PROTOBUF_C_SET_VALUE(clientCaps, has_on_screen_keyboard, true);
+     {
+         int32_t maxBitrate = ihsConf.maxBitrateKbps > 0 ? ihsConf.maxBitrateKbps : 30000;
+         PROTOBUF_C_SET_VALUE(clientCaps, maximum_decode_bitrate_kbps, maxBitrate);

@@ -35,3 +35,4 @@ Make them with `diff -ruN a b` against a copy that already has every earlier pat
 
 - `0100` client: `IHS_ClientDiscoverAddress()` sends one discovery request to a given address instead of broadcasting. iOS blocks broadcast without the multicast entitlement, so the app sweeps its subnet and probes manual IPs with it.
 - `0101` control: `k_EStreamControlSetActivity` is stored in the session state (activity and appid) and logged instead of dropped, so the app only closes the game on the PC when Steam says a game is in front.
+- `0102` input: advertise `has_on_screen_keyboard` in the client caps and pass `k_EStreamControlShowOnScreenKeyboard` to a new `showOnScreenKeyboard` input callback, so the app can bring up the phone's keyboard when the host asks. A Mac host didn't ask in testing (Big Picture still draws its own keyboard). Unhandled control messages also log their number, since newer ones have no name in ihslib's protocol files.

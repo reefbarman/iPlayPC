@@ -202,6 +202,8 @@ struct StreamView: View {
 			session.input.interfaceOrientation = orientation
 		}
 		session.input.onMenuCombo = { showMenu = true }
+		// Steam asks for our keyboard when a text field on the PC is picked
+		session.onShowKeyboard = { if acceptsScreenInput { showKeyboard = true } }
 		self.session = session
 		session.start()
 	}

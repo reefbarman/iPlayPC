@@ -95,6 +95,8 @@ protocol StreamConnection: AnyObject {
 	/// 0...1 motor strengths
 	var onRumble: ((_ low: Float, _ high: Float) -> Void)? { get set }
 	var onLightbar: ((_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Void)? { get set }
+	/// A text field on the PC wants typing
+	var onShowKeyboard: (() -> Void)? { get set }
 	/// At most once; not called after `stop()`
 	var onEnded: ((StreamEnd) -> Void)? { get set }
 

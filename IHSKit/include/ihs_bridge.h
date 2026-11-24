@@ -197,6 +197,8 @@ typedef struct {
     void (*on_rumble)(void *user, uint16_t low, uint16_t high);
     /// The game's lightbar colour (DualSense).
     void (*on_lightbar)(void *user, uint8_t r, uint8_t g, uint8_t b);
+    /// A text field on the host wants typing: bring up the phone's keyboard.
+    void (*on_show_keyboard)(void *user);
     void *user;
 } IHKSessionCallbacks;
 
