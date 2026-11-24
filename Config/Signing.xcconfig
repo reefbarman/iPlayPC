@@ -1,0 +1,9 @@
+// Code signing for the iPlayNow app.
+//
+// Don't edit this file. Copy Local.xcconfig.example to Local.xcconfig (git ignored)
+// and set your own Apple team ID and a bundle ID you own.
+
+DEVELOPMENT_TEAM =
+IPLAYNOW_BUNDLE_ID = io.github.reefbarman.iplaynow
+
+#include? "Local.xcconfig"

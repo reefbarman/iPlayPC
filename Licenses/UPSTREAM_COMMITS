@@ -1,0 +1,4 @@
+ihslib: https://github.com/scaronni/ihslib f68de5f07e0c27ccea9f47f9f5e38fd92c99919e (branch auth, since merged into the fork's master and deleted)
+Steam-Link-PS5 patches: https://github.com/jmelovich/Steam-Link-PS5 925eb0dfad7357d2a5f6c2c1e5202738de2475f7 patches/ihslib
+iPlayNow (App/ base): 245297790b7893893d4800b944cb23779b8c7a24
+iPlay5 (ConsoleListView, AddConsoleView, VideoDecoder, build-chiaki.sh): 104140ac8465278d4e32ef6d32a8efab606a96d9

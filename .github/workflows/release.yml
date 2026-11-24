@@ -1,0 +1,52 @@
+# Push a tag like v0.2.0 to build an unsigned IPA, attach it to a GitHub
+# release and add it to the SideStore/AltStore source.
+name: Release
+
+on:
+    push:
+        tags: ["v*"]
+
+permissions:
+    contents: write
+
+jobs:
+    ipa:
+        # Same runner as iPlay5: the shared player uses SDK APIs that macos-latest's Xcode doesn't have
+        runs-on: xcode-27
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: latest-stable
+
+            - name: Install tools
+              env:
+                  HOMEBREW_NO_AUTO_UPDATE: "1"
+                  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+              run: |
+                  brew install xcodegen
+                  # Newer Xcodes ship the Metal compiler as a separate download
+                  xcodebuild -downloadComponent MetalToolchain || true
+
+            - name: Build IPA
+              run: VERSION="${GITHUB_REF_NAME#v}" BUILD_NUMBER="${{ github.run_number }}" scripts/package-ipa.sh
+
+            - name: Publish release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "$GITHUB_REF_NAME" build/iPlayNow.ipa --title "iPlayNow $GITHUB_REF_NAME" --generate-notes \
+                    || gh release upload "$GITHUB_REF_NAME" build/iPlayNow.ipa --clobber
+
+            - name: Update sideload source
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git fetch origin main
+                  git checkout -B main origin/main
+                  scripts/update-source.sh "${GITHUB_REF_NAME#v}" build/iPlayNow.ipa \
+                    "https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/iPlayNow.ipa"
+                  git add altstore-source.json
+                  git commit -m "chore: add ${GITHUB_REF_NAME} to sideload source"
+                  git push origin main

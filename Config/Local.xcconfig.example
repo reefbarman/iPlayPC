@@ -1,0 +1,7 @@
+// Copy to Config/Local.xcconfig and fill in. That file is git ignored.
+//
+// Team ID: Xcode > Settings > Accounts, or developer.apple.com > Membership.
+// A free Apple ID works too, but apps then expire after 7 days.
+
+DEVELOPMENT_TEAM = ABCDE12345
+IPLAYNOW_BUNDLE_ID = com.yourname.iplaynow

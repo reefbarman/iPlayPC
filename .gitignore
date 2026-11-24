@@ -1,0 +1,9 @@
+build/
+DerivedData/
+Frameworks/
+*.xcodeproj/
+Config/Local.xcconfig
+plans/
+.DS_Store
+.agentlink/
+.vscode/

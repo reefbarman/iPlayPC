@@ -1,0 +1,43 @@
+From: Steam-Link-PS5
+Subject: hid: answer feature reports with their byte count, advertise gyro caps
+
+The host treats a feature-report reply's result as hid_get_feature_report's
+return value: the number of bytes read, where anything <= 0 is a failure.
+ihslib answered a successful read with result=0, so the host discarded every
+feature report - the 0x04 caps report in particular, retried five times per
+pad ("couldn't get controller details for SDL controller" in the host's
+controller.txt, ~800 ms each) - and fell back to the CHIDDeviceInfo caps.
+Reply with the byte count, as Valve's own client does.
+
+Those fallback caps also lacked the gyro/accelerometer bits (0x00040800),
+which Valve's client sets whenever SDL reports a gyro; without them Steam
+Input offers no gyro settings at all for a streamed controller. Add them.
+
+--- a/src/session/channels/control/control_hid.c
++++ b/src/session/channels/control/control_hid.c
+@@ -398,8 +398,12 @@ static void HandleDeviceGetFeatureReport(IHS_SessionChannel *channel, IHS_HIDMan
+ 
+     CHIDMessageFromRemote__RequestResponse response = CHIDMESSAGE_FROM_REMOTE__REQUEST_RESPONSE__INIT;
+     PROTOBUF_C_SET_VALUE(response, request_id, message->request_id);
+-    PROTOBUF_C_SET_VALUE(response, result, result);
+-    if (result == 0) {
++    /* The host reads the result as hid_get_feature_report's return value: the
++     * number of bytes, and anything <= 0 is a failure. Valve's client answers
++     * with the byte count; a bare 0 made the host discard every feature report
++     * (caps, serial) and fall back to the generic caps below. */
++    PROTOBUF_C_SET_VALUE(response, result, result < 0 ? result : (int) str.size);
++    if (result >= 0) {
+         response.has_data = true;
+         response.data.data = IHS_BufferPointer(&str);
+         response.data.len = str.size;
+@@ -585,5 +589,9 @@ static void InfoFromHID(CHIDDeviceInfo *info, const IHS_HIDDeviceInfo *hid) {
+                                  IHS_HID_CAP_STICKBTNS | IHS_HID_CAP_SHOULDERS | IHS_HID_CAP_TRIGGERS |
+                                  IHS_HID_CAP_BACK | IHS_HID_CAP_START | IHS_HID_CAP_GUIDE | IHS_HID_CAP_MISC_1 |
+                                  IHS_HID_CAP_XINPUT_OR_HIDAPI | IHS_HID_CAP_UNK_3 | IHS_HID_CAP_UNK_4;
++    /* Gyro + accelerometer (0x00040800, the bits Valve's client sets when SDL reports a
++     * gyro). The host only reads these caps when the 0x04 caps feature report fails, so
++     * this is the fallback that still lets Steam Input offer gyro. */
++    capsBits |= IHS_HID_CAP_UNK_1 | IHS_HID_CAP_UNK_5;
+     PROTOBUF_C_P_SET_VALUE(info, caps_bits, capsBits);
+ }
+\ No newline at end of file
