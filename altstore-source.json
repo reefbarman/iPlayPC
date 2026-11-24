@@ -17,7 +17,16 @@
       "tintColor": "#2A62E8",
       "category": "entertainment",
       "screenshots": [],
-      "versions": [],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "date": "2026-11-24T22:31:37Z",
+          "downloadURL": "https://github.com/reefbarman/iPlayPC/releases/download/v0.1.0/iPlayPC.ipa",
+          "size": 8911097,
+          "minOSVersion": "17.0",
+          "localizedDescription": "See the release notes on GitHub."
+        }
+      ],
       "appPermissions": {
         "entitlements": [],
         "privacy": {
