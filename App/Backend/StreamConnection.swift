@@ -121,6 +121,9 @@ protocol StreamConnection: AnyObject {
 
 	/// Ask for a clean picture, e.g. after frames were dropped while paused
 	func requestKeyframe()
+	/// Video frames the PC sent that never arrived, since connecting. Any thread.
+	/// For Check connection and Auto bitrate.
+	func lostFrames() -> Int
 
 	/// Which controller the PC should see. Re-announces the device if it changes.
 	func setPad(_ identity: PadIdentity)

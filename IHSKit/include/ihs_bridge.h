@@ -247,6 +247,10 @@ size_t ihk_session_read_audio(IHKSession *session, float *out, size_t frames);
 /// Stereo frames waiting to be read.
 size_t ihk_session_audio_buffered(IHKSession *session);
 
+/// Video frames the host sent that never arrived, since the session was created
+/// (gaps in the frame numbers). Any thread.
+uint64_t ihk_session_lost_frames(IHKSession *session);
+
 /// Microphone audio: 48 kHz mono float, any number of frames, any thread. The
 /// bridge cuts it into 10 ms frames, encodes them with Opus and sends them while
 /// the host's mic channel is open. Returns false (and drops the audio) otherwise.

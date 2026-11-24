@@ -330,6 +330,12 @@ struct IHKSession {
 
     uint64_t last_lost_report_ms;
 
+    // Lost video: frames the host numbered but that never reached us (gaps in the
+    // frame ids handed to video_submit). Only the video thread writes these.
+    bool have_frame_id;
+    uint16_t last_frame_id;
+    atomic_uint_fast64_t lost_frames;
+
     // Microphone: open while the host's mic channel is. The app pushes 48 kHz mono
     // float; we cut it into 10 ms frames and encode them (or send raw float PCM).
     pthread_mutex_t mic_lock;
@@ -391,6 +397,8 @@ static int video_start(IHS_Session *session, const IHS_StreamVideoConfig *config
     snprintf(line, sizeof(line), "Video: %ux%u, colour space %d%s", config->width, config->height,
              config->colorspace, config->colorspace == 5 ? " (HDR10)" : "");
     ihk_log(IHK_LOG_INFO, line);
+    // A (re)started video stream numbers its frames afresh
+    s->have_frame_id = false;
     if (s->cb.on_video_start != NULL) {
         s->cb.on_video_start(s->cb.user, (IHKVideoCodec) config->codec, config->width, config->height);
     }
@@ -402,6 +410,16 @@ static IHS_StreamVideoSubmitResult video_submit(IHS_Session *session, IHS_Buffer
     IHKSession *s = context;
     const bool keyframe = (flags & IHS_StreamVideoFrameKeyFrame) != 0;
     const uint16_t frame_id = IHS_SessionLastSubmittedVideoFrameId(session);
+    // ihslib drops re-sent old frames (patch 0010), so ids only move forward. A big
+    // jump is more likely a restart than real loss, so it isn't counted.
+    if (s->have_frame_id) {
+        const uint16_t gap = (uint16_t) (frame_id - s->last_frame_id);
+        if (gap > 1 && gap < 600) {
+            atomic_fetch_add(&s->lost_frames, gap - 1);
+        }
+    }
+    s->have_frame_id = true;
+    s->last_frame_id = frame_id;
     IHS_SessionReportVideoFrameStage(session, frame_id, IHS_VideoFrameStageDecodeBegin, 0);
     bool ok = true;
     if (s->cb.on_video_frame != NULL) {
@@ -822,6 +840,10 @@ size_t ihk_session_read_audio(IHKSession *s, float *out, size_t frames) {
     s->ring_count -= n;
     pthread_mutex_unlock(&s->audio_lock);
     return n;
+}
+
+uint64_t ihk_session_lost_frames(IHKSession *s) {
+    return s == NULL ? 0 : atomic_load(&s->lost_frames);
 }
 
 size_t ihk_session_audio_buffered(IHKSession *s) {

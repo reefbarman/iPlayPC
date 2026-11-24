@@ -289,6 +289,12 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	/// ihslib has no direct request; a failed decode asks for a keyframe instead
 	func requestKeyframe() {}
 
+	/// Gaps in the PC's frame numbers, counted by the bridge
+	func lostFrames() -> Int {
+		guard let session else { return 0 }
+		return Int(clamping: ihk_session_lost_frames(session))
+	}
+
 	func setPad(_ identity: PadIdentity) {
 		let session = state.withLockUnchecked { state -> OpaquePointer? in
 			state.pad = identity
