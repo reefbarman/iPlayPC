@@ -90,7 +90,8 @@ target_link_libraries(ihslib PUBLIC mbedcrypto protobufc)
 
 # ---------------------------------------------------------------------- bridge
 add_library(ihsbridge STATIC
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ihs_bridge.c")
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ihs_bridge.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ihs_bridge_pad.c")
 target_include_directories(ihsbridge
 	PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
 	PRIVATE "${IHS_LIB}/src" "${ROOT}/vendor/opus/include")

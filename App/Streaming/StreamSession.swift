@@ -202,6 +202,7 @@ final class StreamSession {
 		stream.onVideoFrame = { data, _ in video.decode(data) }
 		let feedback = input.feedback
 		stream.onRumble = { low, high in feedback.rumble(low: low, high: high) }
+		stream.onLightbar = { r, g, b in feedback.lightbar(r: r, g: g, b: b) }
 		stream.onEnded = { [weak self] end in
 			DispatchQueue.main.async { MainActor.assumeIsolated { self?.streamEnded(end, id: id) } }
 		}
@@ -214,7 +215,10 @@ final class StreamSession {
 			self?.sendPad()
 		}
 		input.onGyroAim = { [weak self] gyro, ts in self?.gyroAimed(gyro: gyro, timestamp: ts) }
+		input.onIdentity = { identity in stream.setPad(identity) }
+		input.onPadMotion = { gyro, accel in stream.sendMotion(gyro: gyro, accel: accel) }
 		input.start()
+		stream.setPad(input.padIdentity)
 
 		try await stream.start()
 		guard streamID == id else { return }

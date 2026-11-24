@@ -32,6 +32,10 @@ struct GamepadState: Equatable {
 	var leftY: Int16 = 0
 	var rightX: Int16 = 0
 	var rightY: Int16 = 0
+	/// PlayStation touchpad: the click, and up to two fingers at 0...1 (x left to right, y top to bottom)
+	var touchpadPressed = false
+	var touch1: SIMD2<Float>?
+	var touch2: SIMD2<Float>?
 
 	static let dpadUp: UInt16 = 0x0001
 	static let dpadDown: UInt16 = 0x0002
@@ -53,6 +57,13 @@ struct GamepadState: Equatable {
 /// Which controller the PC sees
 enum PadIdentity: Equatable {
 	case xbox, dualSense
+
+	/// PlayStation controllers appear as a DualSense, so the PC shows PlayStation
+	/// buttons and offers gyro and touchpad; everything else (including the
+	/// on-screen controls) as an Xbox pad
+	init(_ style: ControllerStyle) {
+		self = style.isPlayStation ? .dualSense : .xbox
+	}
 }
 
 enum MouseButton: Hashable {
@@ -104,6 +115,9 @@ protocol StreamConnection: AnyObject {
 	/// Which controller the PC should see. Re-announces the device if it changes.
 	func setPad(_ identity: PadIdentity)
 	func send(_ pad: GamepadState)
+	/// Any thread. Gyro rad/s (x right, y up, z towards the player) and accel in g
+	/// (+1 g up at rest). Only a DualSense identity passes it on, once the PC asks.
+	func sendMotion(gyro: SIMD3<Float>, accel: SIMD3<Float>)
 
 	/// Absolute pointer position within a width×height space covering the picture
 	func sendMouseMove(x: Int, y: Int, width: Int, height: Int)

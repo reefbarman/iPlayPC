@@ -6,6 +6,15 @@ iPlayPC streams your PC's Steam library to your iPhone or iPad over your home ne
 
 **Work in progress.** Nothing is playable yet.
 
+## Controllers
+
+Your controller shows up on the PC as a real gamepad, so Steam Input and games show the right buttons:
+
+- **PlayStation controllers** (DualSense, DualShock 4) appear as a DualSense, with the touchpad, gyro, rumble and lightbar. Turn on **Steam > Settings > Controller > PlayStation Controller Support** on the PC to get the extras.
+- **Everything else**, and the on-screen controls, appear as an Xbox controller with rumble.
+- Controllers without motion sensors (such as a Backbone) use the phone's gyro.
+- Switching controllers mid-game swaps what the PC sees.
+
 Not affiliated with or endorsed by Valve. "Steam" and "Steam Remote Play" are trademarks of Valve Corporation.
 
 ## Build from source

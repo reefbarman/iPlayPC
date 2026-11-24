@@ -22,6 +22,8 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		var stopped = false
 		var ended = false
 		var waiter: CheckedContinuation<Void, Error>?
+		/// Applied to the session before it connects, so the PC sees the right controller from the start
+		var pad = PadIdentity.xbox
 	}
 
 	/// The session pointer is only handed between threads under this lock
@@ -162,13 +164,27 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 			sessionLog.info("PC bitrate \(bitrate / 1000) kbit/s")
 			consoleLog("PC bitrate \(bitrate / 1000) kbit/s")
 		}
+		callbacks.on_rumble = { user, low, high in
+			SteamConnection.from(user)?.onRumble?(Float(low) / 65535, Float(high) / 65535)
+		}
+		callbacks.on_lightbar = { user, r, g, b in
+			SteamConnection.from(user)?.onLightbar?(r, g, b)
+		}
 
 		var grant = grant
-		return secretKey.withUnsafeBytes { key in
+		let session = secretKey.withUnsafeBytes { key in
 			deviceName.withCString { name in
 				ihk_session_create(deviceID, name, key.bindMemory(to: UInt8.self).baseAddress, &grant, &sessionConfig, &callbacks)
 			}
 		}
+		if let session {
+			ihk_session_set_pad_type(session, Self.wirePad(state.withLockUnchecked { $0.pad }))
+		}
+		return session
+	}
+
+	private static func wirePad(_ identity: PadIdentity) -> IHKPadType {
+		identity == .dualSense ? IHK_PAD_DUALSENSE : IHK_PAD_XBOX
 	}
 
 	private static func from(_ user: UnsafeMutableRawPointer?) -> SteamConnection? {
@@ -219,11 +235,69 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	func requestKeyframe() {}
 
 	func setPad(_ identity: PadIdentity) {
-		// HID devices arrive in build plan step 4
+		let session = state.withLockUnchecked { state -> OpaquePointer? in
+			state.pad = identity
+			return state.session
+		}
+		guard let session else { return }
+		ihk_session_set_pad_type(session, Self.wirePad(identity))
 	}
 
 	func send(_ pad: GamepadState) {
-		// HID devices arrive in build plan step 4
+		guard let session else { return }
+		var state = IHKPadState()
+		state.buttons = Self.wireButtons(pad)
+		state.left_x = pad.leftX
+		state.left_y = pad.leftY
+		state.right_x = pad.rightX
+		state.right_y = pad.rightY
+		state.left_trigger = pad.leftTrigger
+		state.right_trigger = pad.rightTrigger
+		let touches = [pad.touch1, pad.touch2].compactMap { $0 }
+		state.touches = UInt8(touches.count)
+		if touches.count > 0 { state.touch_x.0 = touches[0].x; state.touch_y.0 = touches[0].y }
+		if touches.count > 1 { state.touch_x.1 = touches[1].x; state.touch_y.1 = touches[1].y }
+		ihk_session_send_pad(session, &state)
+	}
+
+	func sendMotion(gyro: SIMD3<Float>, accel: SIMD3<Float>) {
+		guard let session else { return }
+		var g = (gyro.x, gyro.y, gyro.z)
+		var a = (accel.x, accel.y, accel.z)
+		withUnsafePointer(to: &g) { gp in
+			withUnsafePointer(to: &a) { ap in
+				gp.withMemoryRebound(to: Float.self, capacity: 3) { gyro in
+					ap.withMemoryRebound(to: Float.self, capacity: 3) { accel in
+						ihk_session_send_motion(session, gyro, accel)
+					}
+				}
+			}
+		}
+	}
+
+	/// Our Xbox-style bits -> the SDL numbering Steam's report uses
+	private static func wireButtons(_ pad: GamepadState) -> UInt32 {
+		let map: [(UInt16, UInt32)] = [
+			(GamepadState.a, UInt32(IHK_PAD_A)),
+			(GamepadState.b, UInt32(IHK_PAD_B)),
+			(GamepadState.x, UInt32(IHK_PAD_X)),
+			(GamepadState.y, UInt32(IHK_PAD_Y)),
+			(GamepadState.back, UInt32(IHK_PAD_BACK)),
+			(GamepadState.guide, UInt32(IHK_PAD_GUIDE)),
+			(GamepadState.start, UInt32(IHK_PAD_START)),
+			(GamepadState.leftThumb, UInt32(IHK_PAD_LEFT_STICK)),
+			(GamepadState.rightThumb, UInt32(IHK_PAD_RIGHT_STICK)),
+			(GamepadState.leftShoulder, UInt32(IHK_PAD_LEFT_SHOULDER)),
+			(GamepadState.rightShoulder, UInt32(IHK_PAD_RIGHT_SHOULDER)),
+			(GamepadState.dpadUp, UInt32(IHK_PAD_DPAD_UP)),
+			(GamepadState.dpadDown, UInt32(IHK_PAD_DPAD_DOWN)),
+			(GamepadState.dpadLeft, UInt32(IHK_PAD_DPAD_LEFT)),
+			(GamepadState.dpadRight, UInt32(IHK_PAD_DPAD_RIGHT)),
+		]
+		var wire: UInt32 = 0
+		for (ours, theirs) in map where pad.buttons & ours != 0 { wire |= theirs }
+		if pad.touchpadPressed { wire |= UInt32(IHK_PAD_TOUCHPAD) }
+		return wire
 	}
 
 	func sendMouseMove(x: Int, y: Int, width: Int, height: Int) {

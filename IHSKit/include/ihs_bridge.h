@@ -192,6 +192,11 @@ typedef struct {
     /// The host changed its target frame rate or bitrate (bits/s). Informational.
     void (*on_target_framerate)(void *user, uint32_t numerator, uint32_t denominator);
     void (*on_target_bitrate)(void *user, int32_t bitrate);
+    /// The game's rumble for the controller, 0...65535 per motor (low = heavy
+    /// left motor). The bridge sends 0, 0 when the game's duration runs out.
+    void (*on_rumble)(void *user, uint16_t low, uint16_t high);
+    /// The game's lightbar colour (DualSense).
+    void (*on_lightbar)(void *user, uint8_t r, uint8_t g, uint8_t b);
     void *user;
 } IHKSessionCallbacks;
 
@@ -256,6 +261,56 @@ typedef enum {
 
 /// Touchscreen finger at 0...1 across the stream.
 bool ihk_session_touch(IHKSession *session, uint64_t finger, IHKTouchPhase phase, float x, float y);
+
+// Controller. Every session has one virtual controller that Steam sees as a
+// USB pad; Steam Input on the PC handles glyphs, gyro, touchpad and rumble.
+
+typedef enum {
+    IHK_PAD_XBOX = 0,
+    IHK_PAD_DUALSENSE = 1,
+} IHKPadType;
+
+/// Buttons in SDL GameController numbering, which is what Steam's report uses.
+enum {
+    IHK_PAD_A = 1u << 0,
+    IHK_PAD_B = 1u << 1,
+    IHK_PAD_X = 1u << 2,
+    IHK_PAD_Y = 1u << 3,
+    IHK_PAD_BACK = 1u << 4,
+    IHK_PAD_GUIDE = 1u << 5,
+    IHK_PAD_START = 1u << 6,
+    IHK_PAD_LEFT_STICK = 1u << 7,
+    IHK_PAD_RIGHT_STICK = 1u << 8,
+    IHK_PAD_LEFT_SHOULDER = 1u << 9,
+    IHK_PAD_RIGHT_SHOULDER = 1u << 10,
+    IHK_PAD_DPAD_UP = 1u << 11,
+    IHK_PAD_DPAD_DOWN = 1u << 12,
+    IHK_PAD_DPAD_LEFT = 1u << 13,
+    IHK_PAD_DPAD_RIGHT = 1u << 14,
+    IHK_PAD_TOUCHPAD = 1u << 20,
+};
+
+typedef struct {
+    uint32_t buttons;           // IHK_PAD_*
+    int16_t left_x, left_y;     // -32768...32767, up is positive
+    int16_t right_x, right_y;
+    uint8_t left_trigger;       // 0...255
+    uint8_t right_trigger;
+    uint8_t touches;            // fingers on the touchpad, 0...2
+    float touch_x[2];           // 0...1 left to right
+    float touch_y[2];           // 0...1 top to bottom
+} IHKPadState;
+
+/// Which controller Steam sees. Changing it mid-stream unplugs the old one and
+/// plugs in the new one. Xbox until set.
+void ihk_session_set_pad_type(IHKSession *session, IHKPadType type);
+
+void ihk_session_send_pad(IHKSession *session, const IHKPadState *state);
+
+/// Motion for Steam Input gyro (DualSense only, and only once Steam turns the
+/// sensors on). gyro in rad/s: x right (pitch), y up (yaw), z towards the
+/// player (roll). accel in g, reading +1 on y when held flat at rest.
+void ihk_session_send_motion(IHKSession *session, const float gyro[3], const float accel[3]);
 
 #ifdef __cplusplus
 }

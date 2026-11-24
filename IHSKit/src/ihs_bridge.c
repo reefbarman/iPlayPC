@@ -3,6 +3,7 @@
 // See include/ihs_bridge.h.
 
 #include "ihs_bridge.h"
+#include "ihs_bridge_pad.h"
 
 #include <ihslib.h>
 
@@ -312,6 +313,7 @@ struct IHKSession {
     // ihslib keeps one disconnect timer per session; a second disconnect
     // overwrites it and the first then fires on the freed session
     atomic_bool disconnecting;
+    IHKPad *pad;
 
     OpusDecoder *opus;
     float decoded[OPUS_MAX_FRAMES * 2];
@@ -349,10 +351,13 @@ static void session_connected(IHS_Session *session, void *context) {
     if (s->cb.on_connected != NULL) {
         s->cb.on_connected(s->cb.user);
     }
+    // Steam opens the controller and asks for its reports
+    ihk_pad_connected(s->pad);
 }
 
 static void session_disconnected(IHS_Session *session, void *context) {
     IHKSession *s = context;
+    ihk_pad_disconnected(s->pad);
     if (s->cb.on_disconnected != NULL) {
         s->cb.on_disconnected(s->cb.user);
     }
@@ -571,6 +576,7 @@ IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, cons
     IHS_SessionSetVideoCallbacks(s->session, &video_callbacks, s);
     IHS_SessionSetAudioCallbacks(s->session, &audio_callbacks, s);
     IHS_SessionSetInputCallbacks(s->session, &input_callbacks, s);
+    s->pad = ihk_pad_create(s->session, &s->cb);
     return s;
 }
 
@@ -604,6 +610,7 @@ void ihk_session_destroy(IHKSession *s) {
         IHS_SessionThreadedJoin(s->session);
     }
     IHS_SessionDestroy(s->session);
+    ihk_pad_destroy(s->pad);
     if (s->opus != NULL) {
         opus_decoder_destroy(s->opus);
     }
@@ -667,6 +674,24 @@ bool ihk_session_key(IHKSession *s, uint32_t scancode, bool down) {
 
 bool ihk_session_text(IHKSession *s, const char *utf8) {
     return s != NULL && utf8 != NULL && IHS_SessionSendText(s->session, utf8);
+}
+
+void ihk_session_set_pad_type(IHKSession *s, IHKPadType type) {
+    if (s != NULL && s->pad != NULL) {
+        ihk_pad_set_type(s->pad, type);
+    }
+}
+
+void ihk_session_send_pad(IHKSession *s, const IHKPadState *state) {
+    if (s != NULL && s->pad != NULL && state != NULL) {
+        ihk_pad_send(s->pad, state);
+    }
+}
+
+void ihk_session_send_motion(IHKSession *s, const float gyro[3], const float accel[3]) {
+    if (s != NULL && s->pad != NULL && gyro != NULL && accel != NULL) {
+        ihk_pad_send_motion(s->pad, gyro, accel);
+    }
 }
 
 bool ihk_session_touch(IHKSession *s, uint64_t finger, IHKTouchPhase phase, float x, float y) {

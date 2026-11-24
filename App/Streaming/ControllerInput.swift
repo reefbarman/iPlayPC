@@ -3,16 +3,25 @@ import GameController
 import os
 import UIKit
 
-/// Maps the connected game controller to an Xbox-style NVST pad.
+/// Maps the connected game controller to the stream's pad.
 ///
 /// - Buttons are mapped by name (A = A, B = B, Menu = Start, Options/View = Back, Home = Guide).
 /// - The Home button and the other system buttons are claimed from iOS so
-///   pressing Home opens the game's guide instead of the iOS overlay.
-/// - GeForce NOW has no motion input, so the gyro is only read for gyro aiming: from the
-///   controller if it has sensors, otherwise from the phone (e.g. a Backbone).
+///   pressing Home opens the Steam overlay instead of the iOS one.
+/// - PlayStation controllers appear on the PC as a DualSense, with their touchpad and
+///   motion, so Steam Input can use them. Anything else appears as an Xbox pad.
+/// - Motion is read from the controller if it has sensors, otherwise from the phone
+///   (e.g. a Backbone): for gyro aiming, and for Steam when the PC sees a DualSense.
 final class ControllerInput {
 	/// Called on the main thread with the latest pad state.
 	var onPad: ((GamepadState) -> Void)?
+	/// Main thread: which controller the PC should see, whenever the controller in use changes
+	var onIdentity: ((PadIdentity) -> Void)?
+	/// Any thread: motion for the PC (gyro rad/s, accel g), while the PC sees a DualSense
+	var onPadMotion: ((SIMD3<Float>, SIMD3<Float>) -> Void)?
+	private(set) var padIdentity = PadIdentity.xbox
+	/// `padIdentity == .dualSense` for the motion queue
+	private let forwardsMotion = OSAllocatedUnfairLock(initialState: false)
 	/// Any thread, whenever motion is read: gyro rad/s and accel g (+1 g up at rest), in the
 	/// same axes as `onGyroAim`, and the sensor's microseconds. For the Controller Test.
 	var onMotion: ((SIMD3<Float>, SIMD3<Float>, UInt32) -> Void)?
@@ -27,13 +36,20 @@ final class ControllerInput {
 			guard gyroAimEnabled != oldValue else { return }
 			let enabled = gyroAimEnabled
 			gyroAim.withLock { $0 = enabled }
-			// Before start() pickController sorts out the motion source
-			guard !observers.isEmpty, controller?.motion?.hasRotationRate != true else { return }
-			if enabled {
-				startPhoneMotion()
-			} else {
-				motionManager.stopDeviceMotionUpdates()
-			}
+			updatePhoneMotion()
+		}
+	}
+
+	/// The phone's motion is needed when the controller has none and something wants it
+	private var wantsPhoneMotion: Bool { gyroAimEnabled || padIdentity == .dualSense }
+
+	private func updatePhoneMotion() {
+		// Before start() pickController sorts out the motion source
+		guard !observers.isEmpty, controller?.motion?.hasRotationRate != true else { return }
+		if wantsPhoneMotion {
+			startPhoneMotion()
+		} else {
+			motionManager.stopDeviceMotionUpdates()
 		}
 	}
 	/// `gyroAimEnabled` for the motion queue
@@ -108,7 +124,10 @@ final class ControllerInput {
 		let candidates = Self.candidates
 		let next = GCController.current.flatMap { candidates.contains($0) ? $0 : nil } ?? candidates.first
 		guard next !== controller else {
-			if next == nil { startPhoneMotion() }
+			if next == nil {
+				setIdentity(.xbox)
+				startPhoneMotion()
+			}
 			return
 		}
 
@@ -123,6 +142,7 @@ final class ControllerInput {
 		controllerName = next?.vendorName
 		calibration.withLock { $0.reset() }
 		feedback.attach(next)
+		setIdentity(PadIdentity(ControllerStyle(next)))
 		guard let next, let pad = next.extendedGamepad else {
 			lastPad = GamepadState()
 			onPad?(lastPad)
@@ -145,6 +165,13 @@ final class ControllerInput {
 			startPhoneMotion()
 		}
 		padChanged(pad)
+	}
+
+	private func setIdentity(_ identity: PadIdentity) {
+		padIdentity = identity
+		let forwards = identity == .dualSense
+		forwardsMotion.withLock { $0 = forwards }
+		onIdentity?(identity)
 	}
 
 	private func claimSystemGestures(_ controller: GCController) {
@@ -191,6 +218,7 @@ final class ControllerInput {
 		state.leftY = Self.axis(pad.leftThumbstick.yAxis.value)
 		state.rightX = Self.axis(pad.rightThumbstick.xAxis.value)
 		state.rightY = Self.axis(pad.rightThumbstick.yAxis.value)
+		Self.readTouchpad(pad, into: &state)
 
 		lastPad = state
 		onPad?(state)
@@ -199,6 +227,31 @@ final class ControllerInput {
 
 	private static func axis(_ v: Float) -> Int16 {
 		Int16(clamping: Int((v * 32767).rounded()))
+	}
+
+	/// DualSense and DualShock 4 touchpads. A finger reads (0, 0) once it's lifted.
+	private static func readTouchpad(_ pad: GCExtendedGamepad, into state: inout GamepadState) {
+		let button: GCControllerButtonInput
+		let fingers: [GCControllerDirectionPad]
+		switch pad {
+		case let ds as GCDualSenseGamepad:
+			button = ds.touchpadButton
+			fingers = [ds.touchpadPrimary, ds.touchpadSecondary]
+		case let ds4 as GCDualShockGamepad:
+			button = ds4.touchpadButton
+			fingers = [ds4.touchpadPrimary, ds4.touchpadSecondary]
+		default:
+			return
+		}
+		state.touchpadPressed = button.isPressed
+		let touches = fingers.compactMap { finger -> SIMD2<Float>? in
+			let x = finger.xAxis.value, y = finger.yAxis.value
+			guard x != 0 || y != 0 else { return nil }
+			// -1...1 with y up -> 0...1 with y down
+			return SIMD2((x + 1) / 2, (1 - y) / 2)
+		}
+		state.touch1 = touches.first
+		state.touch2 = touches.count > 1 ? touches[1] : nil
 	}
 
 	private func updateMenuCombo(select: Bool, start: Bool) {
@@ -239,6 +292,7 @@ final class ControllerInput {
 	private func sendMotion(gyro rawGyro: SIMD3<Float>, accel: SIMD3<Float>, timestamp: UInt32) {
 		let gyro = calibration.withLock { $0.update(gyro: rawGyro, accel: accel, timestamp: timestamp) }
 		onMotion?(gyro, accel, timestamp)
+		if forwardsMotion.withLock({ $0 }) { onPadMotion?(gyro, accel) }
 		guard gyroAim.withLock({ $0 }) else { return }
 		if Thread.isMainThread {
 			onGyroAim?(gyro, timestamp)
@@ -248,7 +302,7 @@ final class ControllerInput {
 	}
 
 	private func startPhoneMotion() {
-		guard gyroAimEnabled, motionManager.isDeviceMotionAvailable else { return }
+		guard wantsPhoneMotion, motionManager.isDeviceMotionAvailable else { return }
 		guard !motionManager.isDeviceMotionActive else { return }
 		motionManager.deviceMotionUpdateInterval = 1.0 / 100.0
 		motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self] data, _ in

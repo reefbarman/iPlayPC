@@ -28,6 +28,9 @@ final class ControllerFeedback {
 
 	// Main thread
 	private var controller: GCController?
+	/// What the game asked the lightbar to show, and the colour to put back afterwards
+	private var lightbar: (UInt8, UInt8, UInt8)?
+	private var savedLight: GCColor?
 
 	// Feedback queue
 	private var handles: [Motor] = []
@@ -43,6 +46,8 @@ final class ControllerFeedback {
 	func attach(_ controller: GCController?) {
 		detach()
 		self.controller = controller
+		savedLight = controller?.light?.color
+		applyLightbar()
 		let haptics = controller?.haptics
 		let localities = haptics?.supportedLocalities ?? []
 		let summary: String = queue.sync {
@@ -62,6 +67,8 @@ final class ControllerFeedback {
 
 	/// Stops the motors and lets go of the controller
 	func detach() {
+		if let light = controller?.light, let savedLight { light.color = savedLight }
+		savedLight = nil
 		controller = nil
 		queue.sync {
 			(handles + [phone].compactMap { $0 }).forEach { $0.stop() }
@@ -73,7 +80,23 @@ final class ControllerFeedback {
 
 	/// Silences anything the last session left running
 	func reset() {
+		lightbar = nil
 		queue.async { self.silence() }
+	}
+
+	// MARK: - Lightbar
+
+	/// The game's lightbar colour, for a controller with a light (DualSense, DualShock 4). Any thread.
+	func lightbar(r: UInt8, g: UInt8, b: UInt8) {
+		DispatchQueue.main.async {
+			self.lightbar = (r, g, b)
+			self.applyLightbar()
+		}
+	}
+
+	private func applyLightbar() {
+		guard let light = controller?.light, let (r, g, b) = lightbar else { return }
+		light.color = GCColor(red: Float(r) / 255, green: Float(g) / 255, blue: Float(b) / 255)
 	}
 
 	// MARK: - Rumble (any thread)
