@@ -1,0 +1,51 @@
+From: iPlayPC
+Subject: session: remember when a packet last arrived and who disconnected
+
+The app reconnects after a dropout but not when the host ends the stream, and
+ihslib reports both the same way. Record in the session state whether the host
+sent Disconnect, and when the last valid packet arrived, so a connection that
+goes silent (Wi-Fi out of range) can be spotted: ihslib has no receive timeout
+of its own.
+
+diff -ruN a/src/session/channels/ch_discovery.c b/src/session/channels/ch_discovery.c
+--- a/src/session/channels/ch_discovery.c	2026-11-24 17:09:23
++++ b/src/session/channels/ch_discovery.c	2026-11-24 17:09:23
+@@ -96,6 +96,7 @@
+             OnUnconnected(channel, packet);
+             break;
+         case IHS_SessionPacketTypeDisconnect:
++            channel->session->state.hostDisconnected = true;
+             /* It's not possible to get packet after interruption, so we can safely call OnDisconnect. */
+             OnDisconnect(channel);
+             break;
+diff -ruN a/src/session/session.c b/src/session/session.c
+--- a/src/session/session.c	2026-11-24 17:09:23
++++ b/src/session/session.c	2026-11-24 17:09:23
+@@ -204,6 +204,7 @@
+         IHS_SessionLog(session, IHS_LogLevelDebug, "Session", "Discarding packet. Reason: %u", ret);
+         return;
+     }
++    session->state.lastReceivedMs = IHS_TimerNow();
+ 
+     IHS_SessionChannelId channelId = packet.header.channelId;
+     IHS_SessionPacketType packetType = packet.header.type;
+diff -ruN a/src/session/session_pri.h b/src/session/session_pri.h
+--- a/src/session/session_pri.h	2026-11-24 17:09:23
++++ b/src/session/session_pri.h	2026-11-24 17:09:23
+@@ -79,6 +79,16 @@
+      */
+     volatile int activity;
+     volatile uint32_t activityAppId;
++    /**
++     * When the last valid packet arrived (IHS_TimerNow ms, 0 before the first), so the app
++     * can spot a connection that went silent. Written on the receive thread.
++     */
++    volatile uint64_t lastReceivedMs;
++    /**
++     * The host sent Disconnect (it ended the stream), as opposed to the session giving up
++     * on a broken connection or the app stopping it.
++     */
++    volatile bool hostDisconnected;
+ } IHS_SessionState;
+ 
+ struct IHS_FrameStatsAggregator;

@@ -7,7 +7,8 @@
 
 #include <ihslib.h>
 
-#include "session/session_pri.h"  // state.activity (patch 0101)
+#include "session/session_pri.h"  // state.activity (patch 0101), lastReceivedMs and hostDisconnected (0104)
+#include "ihs_timer.h"
 
 #include <opus.h>
 
@@ -383,7 +384,7 @@ static void session_disconnected(IHS_Session *session, void *context) {
     IHKSession *s = context;
     ihk_pad_disconnected(s->pad);
     if (s->cb.on_disconnected != NULL) {
-        s->cb.on_disconnected(s->cb.user);
+        s->cb.on_disconnected(s->cb.user, session->state.hostDisconnected);
     }
 }
 
@@ -844,6 +845,15 @@ size_t ihk_session_read_audio(IHKSession *s, float *out, size_t frames) {
 
 uint64_t ihk_session_lost_frames(IHKSession *s) {
     return s == NULL ? 0 : atomic_load(&s->lost_frames);
+}
+
+uint64_t ihk_session_ms_since_receive(IHKSession *s) {
+    if (s == NULL || s->session == NULL) {
+        return 0;
+    }
+    const uint64_t last = s->session->state.lastReceivedMs;
+    const uint64_t now = IHS_TimerNow();
+    return last == 0 || now < last ? 0 : now - last;
 }
 
 size_t ihk_session_audio_buffered(IHKSession *s) {

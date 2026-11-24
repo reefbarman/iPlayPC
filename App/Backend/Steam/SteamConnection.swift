@@ -182,8 +182,8 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		callbacks.on_connected = { user in
 			SteamConnection.from(user)?.connected()
 		}
-		callbacks.on_disconnected = { user in
-			SteamConnection.from(user)?.disconnected()
+		callbacks.on_disconnected = { user, hostClosed in
+			SteamConnection.from(user)?.disconnected(hostClosed: hostClosed)
 		}
 		callbacks.on_video_start = { user, codec, width, height in
 			guard let self = SteamConnection.from(user) else { return }
@@ -247,17 +247,18 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		finishStart(.success(()))
 	}
 
-	private func disconnected() {
+	/// hostClosed: the PC sent Disconnect. Otherwise ihslib gave up on a broken connection.
+	private func disconnected(hostClosed: Bool) {
 		let report = state.withLockUnchecked { state -> Bool in
 			guard !state.stopped, !state.ended else { return false }
 			state.ended = true
 			return true
 		}
-		sessionLog.notice("Stream disconnected")
+		sessionLog.notice("Stream disconnected (\(hostClosed ? "PC ended it" : "connection broke", privacy: .public))")
 		guard report else { return }
 		let wasConnected = state.withLockUnchecked { $0.connected }
 		if wasConnected {
-			onEnded?(.hostClosed)
+			onEnded?(hostClosed ? .hostClosed : .connectionLost)
 		} else {
 			finishStart(.failure(BackendError("Couldn't connect to the PC. Try again.")))
 		}
@@ -293,6 +294,11 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	func lostFrames() -> Int {
 		guard let session else { return 0 }
 		return Int(clamping: ihk_session_lost_frames(session))
+	}
+
+	func secondsSinceReceive() -> Double {
+		guard let session else { return 0 }
+		return Double(ihk_session_ms_since_receive(session)) / 1000
 	}
 
 	func setPad(_ identity: PadIdentity) {

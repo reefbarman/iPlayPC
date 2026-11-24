@@ -74,12 +74,15 @@ enum MouseButton: Hashable {
 enum StreamEnd: Equatable {
 	/// The PC closed it (the player quit from Steam, or the PC went to sleep)
 	case hostClosed
+	/// The connection broke without the PC ending the stream. Worth reconnecting.
+	case connectionLost
 	case failed(String)
 
 	/// Short player-facing text, nil for a normal end
 	var message: String? {
 		switch self {
 		case .hostClosed: nil
+		case .connectionLost: "Lost the connection to the PC."
 		case .failed(let reason): reason
 		}
 	}
@@ -124,6 +127,9 @@ protocol StreamConnection: AnyObject {
 	/// Video frames the PC sent that never arrived, since connecting. Any thread.
 	/// For Check connection and Auto bitrate.
 	func lostFrames() -> Int
+	/// Seconds since anything arrived from the PC, 0 before the first packet. Any thread.
+	/// A connection that drops silently never ends on its own, so the player watches this.
+	func secondsSinceReceive() -> Double
 
 	/// Which controller the PC should see. Re-announces the device if it changes.
 	func setPad(_ identity: PadIdentity)

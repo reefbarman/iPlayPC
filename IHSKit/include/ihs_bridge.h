@@ -184,8 +184,9 @@ typedef struct {
 /// session from inside one.
 typedef struct {
     void (*on_connected)(void *user);
-    /// The stream ended (host closed it, network lost, or ihk_session_stop).
-    void (*on_disconnected)(void *user);
+    /// The stream ended (host closed it, network lost, or ihk_session_stop). host_closed:
+    /// the host sent Disconnect, so it meant to end it.
+    void (*on_disconnected)(void *user, bool host_closed);
     void (*on_video_start)(void *user, IHKVideoCodec codec, uint32_t width, uint32_t height);
     /// One Annex-B access unit (parameter sets arrive in band). Decode it
     /// synchronously and return whether it worked; a failure asks the host for
@@ -250,6 +251,10 @@ size_t ihk_session_audio_buffered(IHKSession *session);
 /// Video frames the host sent that never arrived, since the session was created
 /// (gaps in the frame numbers). Any thread.
 uint64_t ihk_session_lost_frames(IHKSession *session);
+
+/// Milliseconds since the last packet from the host, 0 before the first. Any thread.
+/// The host answers our 10 s keepalive, so even a still screen hears back that often.
+uint64_t ihk_session_ms_since_receive(IHKSession *session);
 
 /// Microphone audio: 48 kHz mono float, any number of frames, any thread. The
 /// bridge cuts it into 10 ms frames, encodes them with Opus and sends them while
