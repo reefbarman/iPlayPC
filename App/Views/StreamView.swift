@@ -137,7 +137,8 @@ struct StreamView: View {
 					onMouse: { [weak session] in session?.sendMouse($0) },
 					onReset: { [weak session] in session?.resetScreenInput() },
 					onCornerTap: revealMenuButton,
-					onLeftCornerTap: revealGuideButton
+					onLeftCornerTap: revealGuideButton,
+					onThreeFingerTap: { showKeyboard.toggle() }
 				)
 				.ignoresSafeArea()
 			}
@@ -840,6 +841,7 @@ private struct MetalStreamView: UIViewRepresentable {
 	let onReset: () -> Void
 	let onCornerTap: () -> Void
 	let onLeftCornerTap: () -> Void
+	let onThreeFingerTap: () -> Void
 
 	func makeUIView(context: Context) -> StreamMetalView {
 		let view = StreamMetalView(renderer: renderer)
@@ -851,6 +853,7 @@ private struct MetalStreamView: UIViewRepresentable {
 		uiView.highRefresh = highRefresh
 		uiView.onCornerTap = onCornerTap
 		uiView.onLeftCornerTap = onLeftCornerTap
+		uiView.onThreeFingerTap = onThreeFingerTap
 		uiView.videoAspectForLetterbox = videoAspectForLetterbox
 		uiView.onFrameGenerationTap = onFrameGenerationTap
 		uiView.onVirtualPad = onVirtualPad

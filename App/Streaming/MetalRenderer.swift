@@ -858,6 +858,18 @@ final class StreamMetalView: UIView {
 	}
 	private let mouse = TouchMouse()
 	private var touchMouse = false
+	/// Three fingers tapped together: toggles the iPhone keyboard, like Moonlight
+	var onThreeFingerTap: (() -> Void)?
+	/// When and where each finger on the view landed, so a third finger joining thumbs
+	/// that are already on the sticks or buttons isn't mistaken for a three-finger tap
+	private var touchStarts: [ObjectIdentifier: (time: CFTimeInterval, point: CGPoint)] = [:]
+	/// A three-finger tap in progress: until every finger lifts, touches skip the controls
+	/// and the mouse. Not valid once a finger wanders, a fourth lands or it's held too long.
+	private var threeFinger: (began: CFTimeInterval, valid: Bool)?
+	/// How close together the three fingers must land, and the longest tap
+	private static let threeFingerLanding: CFTimeInterval = 0.15
+	private static let threeFingerTapTime: CFTimeInterval = 0.4
+	private static let threeFingerSlop: CGFloat = 20
 	/// The picture's width over height, and whether it's zoomed to fill the view
 	var videoAspect: CGFloat = 16.0 / 9.0
 	var fillsView = false
@@ -891,7 +903,11 @@ final class StreamMetalView: UIView {
 
 	override func didMoveToWindow() {
 		super.didMoveToWindow()
-		if window == nil { resetTouches() }
+		if window == nil {
+			resetTouches()
+			touchStarts.removeAll()
+			threeFinger = nil
+		}
 		updateDisplayLink()
 	}
 
@@ -1021,6 +1037,20 @@ final class StreamMetalView: UIView {
 
 	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
 		guard acceptsInput else { return }
+		let now = CACurrentMediaTime()
+		for touch in touches { touchStarts[ObjectIdentifier(touch)] = (now, touch.location(in: self)) }
+		if threeFinger != nil {
+			// A fourth finger: not a three-finger tap after all
+			threeFinger?.valid = false
+			return
+		}
+		if touchStarts.count == 3, let first = touchStarts.values.map(\.time).min(),
+		   now - first <= Self.threeFingerLanding {
+			// Let go of whatever the first two fingers started
+			resetTouches()
+			threeFinger = (first, true)
+			return
+		}
 		mouse.pictureRect = pictureRect
 		for touch in touches {
 			let p = touch.location(in: self)
@@ -1053,6 +1083,14 @@ final class StreamMetalView: UIView {
 	}
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+		if threeFinger != nil {
+			for touch in touches {
+				guard let start = touchStarts[ObjectIdentifier(touch)]?.point else { continue }
+				let p = touch.location(in: self)
+				if hypot(p.x - start.x, p.y - start.y) > Self.threeFingerSlop { threeFinger?.valid = false }
+			}
+			return
+		}
 		mouse.pictureRect = pictureRect
 		for touch in touches {
 			let key = ObjectIdentifier(touch)
@@ -1071,6 +1109,19 @@ final class StreamMetalView: UIView {
 	}
 
 	private func finishTouches(_ touches: Set<UITouch>, allowsTap: Bool) {
+		for touch in touches { touchStarts.removeValue(forKey: ObjectIdentifier(touch)) }
+		if var gesture = threeFinger {
+			if !allowsTap { gesture.valid = false }
+			guard touchStarts.isEmpty else {
+				threeFinger = gesture
+				return
+			}
+			threeFinger = nil
+			if gesture.valid, CACurrentMediaTime() - gesture.began <= Self.threeFingerTapTime {
+				onThreeFingerTap?()
+			}
+			return
+		}
 		for touch in touches {
 			let key = ObjectIdentifier(touch)
 			if frameGenerationTouches.remove(key) != nil {

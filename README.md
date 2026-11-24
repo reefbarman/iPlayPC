@@ -15,6 +15,10 @@ Your controller shows up on the PC as a real gamepad, so Steam Input and games s
 - Controllers without motion sensors (such as a Backbone) use the phone's gyro.
 - Switching controllers mid-game swaps what the PC sees.
 
+## Typing
+
+Use the iPhone keyboard to type on your PC. Open or close it by tapping the screen with three fingers, with the keyboard button that appears when you tap the top-left corner, or with **Type with the keyboard** in the stream menu. What you type goes to whatever has focus on the PC, such as a search box in Big Picture.
+
 ## Quitting
 
 The stream menu has two ways out:
