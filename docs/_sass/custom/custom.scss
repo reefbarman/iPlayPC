@@ -1,0 +1,80 @@
+// Landing page styles for docs/index.md.
+
+.hero {
+  text-align: center;
+  padding: 1.5rem 0 0.5rem;
+}
+
+.hero-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  box-shadow: 0 10px 40px rgba(42, 98, 232, 0.4);
+}
+
+.main-content .hero h1 {
+  margin-top: 1.25rem;
+  font-size: 2.5rem;
+  line-height: 1.15;
+  background: linear-gradient(90deg, #ffffff, #9dbbff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-lead {
+  max-width: 40rem;
+  margin: 0 auto 1.5rem;
+  font-size: 1.15rem;
+  color: #aab6cc;
+}
+
+.hero-actions .btn {
+  margin: 0.25rem;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.main-content a.feature-card {
+  display: block;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid #1f2a40;
+  border-radius: 12px;
+  background: #121a2c;
+  color: inherit;
+  text-decoration: none;
+  white-space: normal;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    border-color: #2a62e8;
+    transform: translateY(-2px);
+  }
+
+  // Plain text rather than a heading, because the theme adds an anchor link
+  // inside headings, which can't be nested in the card's own link.
+  .feature-title {
+    display: block;
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: #aab6cc;
+  }
+}
+
+@media (max-width: 50rem) {
+  .main-content .hero h1 {
+    font-size: 1.9rem;
+  }
+}

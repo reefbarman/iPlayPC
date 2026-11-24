@@ -1,0 +1,105 @@
+# GitHub Pages site for iPlayPC, built from this folder.
+# Every guide here is published as a page; README.md is the in-repo index and is
+# excluded because index.md is the site's home page.
+
+title: iPlayPC
+description: >-
+  Free, open-source Steam Remote Play for iPhone and iPad. Stream your PC's
+  Steam games over your home network with hardware decoding, controllers and
+  virtual controls, gyro aiming and HDR, tuned for the iPhone Duo. Sideload
+  with AltStore or SideStore.
+url: https://reefbarman.github.io
+baseurl: /iPlayPC
+lang: en
+author: reefbarman
+
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+plugins:
+  - jekyll-remote-theme
+  - jekyll-include-cache
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+color_scheme: iplaypc
+search_enabled: true
+heading_anchors: true
+back_to_top: true
+back_to_top_text: Back to top
+aux_links:
+  GitHub: https://github.com/reefbarman/iPlayPC
+  Download: https://github.com/reefbarman/iPlayPC/releases/latest
+aux_links_new_tab: true
+footer_content: >-
+  iPlayPC is open source under AGPL-3.0. Not affiliated with or endorsed by
+  Valve Corporation. "Steam" and "Steam Remote Play" are trademarks of Valve
+  Corporation, and "Xbox" is a trademark of Microsoft Corporation.
+
+exclude:
+  - README.md
+
+# Sidebar order and search descriptions live here so the guides stay free of
+# front matter and read cleanly on GitHub.
+defaults:
+  - scope:
+      path: ""
+    values:
+      image: /images/app-icon.png
+  - scope:
+      path: index.md
+    values:
+      nav_exclude: true
+  - scope:
+      path: pcs-and-setup.md
+    values:
+      nav_order: 1
+      description: Set up Steam Remote Play on your PC, find and pair it with iPlayPC, wake it from sleep and give each PC its own settings.
+  - scope:
+      path: picture.md
+    values:
+      nav_order: 2
+      description: iPlayPC picture settings for Steam Remote Play on iPhone and iPad, including resolution, frame rate, bitrate, H.265, HDR, MetalFX upscaling, 120 Hz and frame generation.
+  - scope:
+      path: controllers.md
+    values:
+      nav_order: 3
+      description: Use an Xbox controller, DualSense or Backbone with iPlayPC and Steam Input, with rumble, lightbar, gyro aiming and the Controller Test.
+  - scope:
+      path: touch-and-virtual-controls.md
+    values:
+      nav_order: 4
+      description: Play Steam games on iPhone without a controller using iPlayPC's on-screen virtual controls, touch as a mouse and the iPhone keyboard.
+  - scope:
+      path: connection.md
+    values:
+      nav_order: 5
+      description: Get a smooth Steam Remote Play stream on iPhone with iPlayPC's Auto bitrate, Check connection and reconnecting after a dropout.
+  - scope:
+      path: audio.md
+    values:
+      nav_order: 6
+      description: Game audio and voice chat in iPlayPC, the Steam Remote Play app for iPhone and iPad.
+  - scope:
+      path: stream-screen.md
+    values:
+      nav_order: 7
+      description: iPlayPC stream screen shortcuts, the stream menu, typing with the iPhone keyboard, battery and heat, and quitting.
+  - scope:
+      path: iphone-duo.md
+    values:
+      nav_order: 8
+      description: Steam Remote Play on the iPhone Duo with iPlayPC, playing on the inner screen and pausing when folded.
+  - scope:
+      path: troubleshooting.md
+    values:
+      nav_order: 9
+      description: Fix problems with iPlayPC, including a PC that isn't found, no picture or sound from a Mac, stutter, and known limitations.
+  - scope:
+      path: licensing.md
+    values:
+      nav_order: 10
+      description: iPlayPC is free and open source under the AGPL v3. Get the source for any version, see bundled components and their licences.
+  - scope:
+      path: privacy.md
+    values:
+      nav_order: 11
+      description: iPlayPC's privacy policy. It has no analytics, ads or accounts, and only talks to PCs on your own network.

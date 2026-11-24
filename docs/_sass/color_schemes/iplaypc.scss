@@ -1,0 +1,19 @@
+// Dark scheme with blue accents, based on Just the Docs' dark.scss.
+$color-scheme: dark;
+$body-background-color: #0b0f1a;
+$body-heading-color: #ffffff;
+$body-text-color: #c3cde0;
+$link-color: #7aa7ff;
+$nav-child-link-color: #8a98b3;
+$sidebar-color: #0e1424;
+$base-button-color: #1a2236;
+$btn-primary-color: #2a62e8;
+$code-background-color: #0d1117;
+$code-linenumber-color: #e6edf3;
+$feedback-color: #0a0f1c;
+$table-background-color: #121a2c;
+$search-background-color: #121a2c;
+$search-result-preview-color: #c3cde0;
+$border-color: #1f2a40;
+
+@import "./vendor/accessible-pygments/github-dark";

@@ -38,4 +38,8 @@ Once published, releases follow iPlayNow's `AGENTS.md`: push a `vX.Y.Z` tag, wai
 
 ## Documentation
 
-`README.md` describes every headline feature and how to use the app. When a change adds or changes something players can see, update it in the same change. Use the names, defaults and settings paths the app shows.
+`README.md` has the highlights. `docs/` has a guide per area (see `docs/README.md`) that describes every feature and setting. When a change adds or changes something players can see, update the matching guide in the same change, and the README highlights if it's a headline feature. Use the names, defaults and settings paths the app shows.
+
+`docs/` is also published with GitHub Pages at https://reefbarman.github.io/iPlayPC/. `docs/index.md` is the site's home page (a short, player-facing version of the README) and `docs/_config.yml` holds each guide's sidebar order and search description. The site uses the Just the Docs theme with a custom colour scheme in `docs/_sass/`. When adding or renaming a guide, update both, plus the table in `docs/README.md`. Links inside `docs/` must stay within `docs/`, so use full GitHub URLs for files elsewhere in the repo.
+
+`docs/privacy.md` is the privacy policy that Settings › About links to, and `App/PrivacyInfo.xcprivacy` is the app's privacy manifest. If a change stores new data, contacts a new service, asks for a new permission or uses a new required-reason API, update both.
