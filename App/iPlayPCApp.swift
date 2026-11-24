@@ -1,22 +1,18 @@
 import SwiftUI
 import os
 
-let logSubsystem = Bundle.main.bundleIdentifier ?? "iplaynow"
+let logSubsystem = Bundle.main.bundleIdentifier ?? "iplaypc"
 let log = Logger(subsystem: logSubsystem, category: "app")
 
 @main
-struct iPlayNowApp: App {
+struct iPlayPCApp: App {
 	@UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-	@State private var accounts = GFNAccountStore()
-	@State private var settings = SettingsStore()
-	@State private var gameSettings = GameSettingsStore()
+	@State private var hosts = HostStore()
 
 	var body: some Scene {
 		WindowGroup {
-			RootView()
-				.environment(accounts)
-				.environment(settings)
-				.environment(gameSettings)
+			HostListView()
+				.environment(hosts)
 				.preferredColorScheme(.dark)
 				.background {
 					// Track the window shape so orientation follows fold/unfold
@@ -31,18 +27,6 @@ struct iPlayNowApp: App {
 	}
 }
 
-/// Sign-in until there's an account, then the library
-private struct RootView: View {
-	@Environment(GFNAccountStore.self) private var accounts
-
-	var body: some View {
-		if accounts.account == nil {
-			SignInView()
-		} else {
-			LibraryView()
-		}
-	}
-}
 
 /// Orientation is left to iOS: Info.plist allows portrait and both landscapes on
 /// every screen, which is what lets unfolding the Duo land the right way round.
