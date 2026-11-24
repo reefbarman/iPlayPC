@@ -19,21 +19,10 @@ targets:
       - path: App
         # Temporary (build plan step 2): the player and settings copied from iPlayNow
         # aren't adapted yet, so they stay out of the build until step 3.
+        # iPlay5 layout references for the home screen; removed in build plan step 5
         excludes:
-          - "Streaming/**"
-          - "Models/Models.swift"
-          - "Models/ControllerStyle.swift"
-          - "Models/PhoneStatus.swift"
           - "Views/ConsoleListView.swift"
           - "Views/AddConsoleView.swift"
-          - "Views/ControllerScene.swift"
-          - "Views/ControllerSceneView.swift"
-          - "Views/ControllerTestView.swift"
-          - "Views/GamepadForm.swift"
-          - "Views/SettingsView.swift"
-          - "Views/StreamKeyboard.swift"
-          - "Views/StreamView.swift"
-          - "Views/VirtualControlsOverlay.swift"
     dependencies:
       # Built by scripts/build-ihskit.sh: ihslib (patched) + mbedTLS + Opus + protobuf-c, and the ihs_bridge C API
       - framework: Frameworks/IHSKit.xcframework

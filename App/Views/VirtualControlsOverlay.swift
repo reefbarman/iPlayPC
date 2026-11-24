@@ -1,8 +1,7 @@
-import NVSTKit
 import UIKit
 
 /// An occupied stick (even at its centre) owns that axis until its finger lifts.
-/// Stick Y is up-positive, like NVSTGamepad.
+/// Stick Y is up-positive, like GamepadState.
 struct VirtualPadState: Equatable {
 	var buttons: UInt16 = 0
 	var leftTrigger: UInt8 = 0
@@ -131,21 +130,21 @@ final class VirtualControlsOverlay: UIView {
 		fixedStickCentres = [CGPoint(x: x + 150 * s, y: row - 20 * s), CGPoint(x: right - 150 * s, y: row - 20 * s)]
 		controls = [
 			Control("LT", rect(x - 32 * s, shoulders, 56, 44), .trigger(left: true), rounded: true),
-			Control("LB", rect(x + 32 * s, shoulders, 56, 44), .button(NVSTGamepad.leftShoulder), rounded: true),
-			Control("RB", rect(right - 32 * s, shoulders, 56, 44), .button(NVSTGamepad.rightShoulder), rounded: true),
+			Control("LB", rect(x + 32 * s, shoulders, 56, 44), .button(GamepadState.leftShoulder), rounded: true),
+			Control("RB", rect(right - 32 * s, shoulders, 56, 44), .button(GamepadState.rightShoulder), rounded: true),
 			Control("RT", rect(right + 32 * s, shoulders, 56, 44), .trigger(left: false), rounded: true),
-			Control("▲", rect(x, row - 36 * s, 36, 36), .dpad(NVSTGamepad.dpadUp), rounded: true),
-			Control("◀", rect(x - 36 * s, row, 36, 36), .dpad(NVSTGamepad.dpadLeft), rounded: true),
-			Control("▶", rect(x + 36 * s, row, 36, 36), .dpad(NVSTGamepad.dpadRight), rounded: true),
-			Control("▼", rect(x, row + 36 * s, 36, 36), .dpad(NVSTGamepad.dpadDown), rounded: true),
-			button("Y", right, row - 36 * s, NVSTGamepad.y, tint: Self.yellow),
-			button("X", right - 36 * s, row, NVSTGamepad.x, tint: Self.blue),
-			button("B", right + 36 * s, row, NVSTGamepad.b, tint: Self.red),
-			button("A", right, row + 36 * s, NVSTGamepad.a, tint: Self.green),
-			button("LS", x + 76 * s, row + 37 * s, NVSTGamepad.leftThumb),
-			button("RS", right - 76 * s, row + 37 * s, NVSTGamepad.rightThumb),
-			Control("View", systemRect(middle - 32), .button(NVSTGamepad.back), rounded: true, icon: Self.viewIcon),
-			Control("Menu", systemRect(middle + 32), .button(NVSTGamepad.start), rounded: true, icon: Self.menuIcon),
+			Control("▲", rect(x, row - 36 * s, 36, 36), .dpad(GamepadState.dpadUp), rounded: true),
+			Control("◀", rect(x - 36 * s, row, 36, 36), .dpad(GamepadState.dpadLeft), rounded: true),
+			Control("▶", rect(x + 36 * s, row, 36, 36), .dpad(GamepadState.dpadRight), rounded: true),
+			Control("▼", rect(x, row + 36 * s, 36, 36), .dpad(GamepadState.dpadDown), rounded: true),
+			button("Y", right, row - 36 * s, GamepadState.y, tint: Self.yellow),
+			button("X", right - 36 * s, row, GamepadState.x, tint: Self.blue),
+			button("B", right + 36 * s, row, GamepadState.b, tint: Self.red),
+			button("A", right, row + 36 * s, GamepadState.a, tint: Self.green),
+			button("LS", x + 76 * s, row + 37 * s, GamepadState.leftThumb),
+			button("RS", right - 76 * s, row + 37 * s, GamepadState.rightThumb),
+			Control("View", systemRect(middle - 32), .button(GamepadState.back), rounded: true, icon: Self.viewIcon),
+			Control("Menu", systemRect(middle + 32), .button(GamepadState.start), rounded: true, icon: Self.menuIcon),
 		]
 		setNeedsDisplay()
 	}
@@ -211,10 +210,10 @@ final class VirtualControlsOverlay: UIView {
 		guard distance > 9 else { return 0 }
 		let threshold = distance * 0.42
 		var bits: UInt16 = 0
-		if dx < -threshold { bits |= NVSTGamepad.dpadLeft }
-		if dx > threshold { bits |= NVSTGamepad.dpadRight }
-		if dy < -threshold { bits |= NVSTGamepad.dpadUp }
-		if dy > threshold { bits |= NVSTGamepad.dpadDown }
+		if dx < -threshold { bits |= GamepadState.dpadLeft }
+		if dx > threshold { bits |= GamepadState.dpadRight }
+		if dy < -threshold { bits |= GamepadState.dpadUp }
+		if dy > threshold { bits |= GamepadState.dpadDown }
 		return bits
 	}
 

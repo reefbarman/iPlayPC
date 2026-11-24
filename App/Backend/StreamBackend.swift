@@ -20,12 +20,18 @@ struct DiscoveredHost: Hashable, Identifiable {
 	var seen: Date = .now
 }
 
-/// Per-PC settings. Video overrides arrive with the player (see build plan step 3).
+/// Per-PC settings
 struct HostSettings: Codable, Hashable {
+	/// This PC's own resolution, frame rate, bitrate and codec, or nil to use the app's
+	var video: VideoSettings?
+
 	init() {}
 
 	/// Missing keys keep their defaults, so adding a setting doesn't reset the others
-	init(from decoder: Decoder) throws {}
+	init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		video = try? c.decodeIfPresent(VideoSettings.self, forKey: .video)
+	}
 }
 
 /// A PC the player has added. Saved by HostStore; secrets live in the Keychain.
@@ -73,7 +79,12 @@ enum PairingStep: Equatable {
 /// A failure with short, player-facing text
 struct BackendError: LocalizedError, Equatable {
 	var message: String
-	init(_ message: String) { self.message = message }
+	/// The PC no longer knows this phone: send the player back to pairing
+	var needsPairing = false
+	init(_ message: String, needsPairing: Bool = false) {
+		self.message = message
+		self.needsPairing = needsPairing
+	}
 	var errorDescription: String? { message }
 }
 
@@ -92,4 +103,8 @@ protocol StreamBackend: AnyObject {
 
 	/// Forgets the PC's pairing key
 	func forgetPairing(_ host: PCHost)
+
+	/// Asks the PC to start streaming and returns the stream, not yet started: set its
+	/// callbacks, then call `start()`. Throws BackendError or CancellationError.
+	func connect(_ host: PCHost, config: StreamConfig) async throws -> StreamConnection
 }

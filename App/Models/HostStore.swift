@@ -155,6 +155,22 @@ final class HostStore {
 		}
 	}
 
+	/// The PC forgot this phone: drop the key so the list offers pairing again
+	func markUnpaired(_ host: PCHost) {
+		backend.forgetPairing(host)
+		guard var saved = self.host(id: host.id) else { return }
+		saved.isPaired = false
+		update(saved)
+	}
+
+	// MARK: - Streaming
+
+	/// Streams from the PC through its backend
+	@MainActor
+	func makeSession(for host: PCHost, settings: StreamSettings) -> StreamSession {
+		StreamSession(host: self.host(id: host.id) ?? host, backend: backend, settings: settings)
+	}
+
 	private func save() {
 		if let data = try? JSONEncoder().encode(hosts) {
 			UserDefaults.standard.set(data, forKey: key)

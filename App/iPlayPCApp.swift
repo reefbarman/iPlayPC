@@ -4,15 +4,25 @@ import os
 let logSubsystem = Bundle.main.bundleIdentifier ?? "iplaypc"
 let log = Logger(subsystem: logSubsystem, category: "app")
 
+/// Development: launched with `-console` (devicectl --console), streaming logs go to stderr too
+let mirrorsLogToConsole = ProcessInfo.processInfo.arguments.contains("-console")
+
+func consoleLog(_ message: @autoclosure () -> String) {
+	guard mirrorsLogToConsole else { return }
+	FileHandle.standardError.write(Data((message() + "\n").utf8))
+}
+
 @main
 struct iPlayPCApp: App {
 	@UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 	@State private var hosts = HostStore()
+	@State private var settings = SettingsStore()
 
 	var body: some Scene {
 		WindowGroup {
 			HostListView()
 				.environment(hosts)
+				.environment(settings)
 				.preferredColorScheme(.dark)
 				.background {
 					// Track the window shape so orientation follows fold/unfold

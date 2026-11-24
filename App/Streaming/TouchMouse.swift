@@ -1,4 +1,3 @@
-import NVSTKit
 import UIKit
 
 /// The touchscreen as a mouse on the game's picture, for launchers, menus and anything else
@@ -17,7 +16,7 @@ final class TouchMouse {
 		case move(CGPoint)
 		/// Moves the pointer by a fraction of the picture's width and height
 		case moveBy(CGVector)
-		case button(NVSTMouseButton, pressed: Bool)
+		case button(MouseButton, pressed: Bool)
 		/// Windows wheel units, 120 a notch, positive scrolls up
 		case wheel(Int)
 	}
@@ -200,7 +199,7 @@ final class TouchMouse {
 		emit(.button(.left, pressed: pressed))
 	}
 
-	private func click(_ button: NVSTMouseButton) {
+	private func click(_ button: MouseButton) {
 		emit(.button(button, pressed: true))
 		emit(.button(button, pressed: false))
 	}

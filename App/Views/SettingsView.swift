@@ -4,7 +4,7 @@ import SwiftUI
 /// Stream settings, shared by the main settings sheet and the in-stream menu.
 struct StreamSettingsForm: View {
 	@Binding var settings: StreamSettings
-	/// Off in the stream menu: GeForce NOW fixes the video settings for a session
+	/// Off in the stream menu: the video settings are fixed for a stream
 	var showsVideo = true
 
 	var body: some View {
@@ -456,10 +456,10 @@ private struct VirtualControlsSettingsPage: View {
 	}
 }
 
-/// Resolution, frame rate, bitrate, codec and HDR: what to ask GeForce NOW for. A game can have its own.
+/// Resolution, frame rate, bitrate, codec and HDR: what to ask the PC for. A PC can have its own.
 struct VideoSettingsSection: View {
 	@Binding var settings: StreamSettings
-	var customGameName: String?
+	var customHostName: String?
 
 	/// The rows below, for a controller
 	static func gamepadRows(_ settings: Binding<StreamSettings>) -> [GamepadRow] {
@@ -469,7 +469,8 @@ struct VideoSettingsSection: View {
 			.picker("video.fps", settings.fps, StreamSettings.fpsOptions),
 			GamepadRow(id: "video.bitrate", adjust: { step in
 				let mbps = settings.wrappedValue.bitrateMbps + step * 5
-				settings.wrappedValue.bitrateMbps = min(StreamSettings.maxBitrateMbps, max(5, mbps))
+				settings.wrappedValue.bitrateMbps = mbps < 5 ? StreamSettings.automaticBitrate
+					: StreamSettings.clampBitrate(mbps)
 			}),
 		]
 		if !s.hdr {
@@ -496,10 +497,10 @@ struct VideoSettingsSection: View {
 				HStack {
 					Text("Maximum bitrate")
 					Spacer()
-					Text("\(settings.bitrateMbps) Mbps").foregroundStyle(.secondary).monospacedDigit()
+					Text(settings.bitrateLabel).foregroundStyle(.secondary).monospacedDigit()
 				}
 				Slider(value: Binding(get: { Double(settings.bitrateMbps) }, set: { settings.bitrateMbps = Int($0) }),
-					in: 5...Double(StreamSettings.maxBitrateMbps), step: 5)
+					in: 0...Double(StreamSettings.maxBitrateMbps), step: 5)
 			}
 			.gamepadRow("video.bitrate")
 			Picker("Codec", selection: Binding(get: { settings.effectiveCodec }, set: { settings.codec = $0 })) {
@@ -512,67 +513,81 @@ struct VideoSettingsSection: View {
 					.gamepadRow("video.hdr")
 			}
 		} header: {
-			Text(customGameName.map { "Video for \($0)" } ?? "Video")
+			Text(customHostName.map { "Video for \($0)" } ?? "Video")
 		} footer: {
-			Text("Your membership decides the most GeForce NOW will stream. 1440p, 4K, 120 fps and HDR need Ultimate, and HDR needs H.265 and a game that supports it. These can't change during a game.")
-			if customGameName == nil {
-				Text("To give a game its own video settings, press and hold its cover and tap Video settings, or select it with a controller and press \(ControllerStyle.current.y).")
+			Text("These are the most to ask for: the PC's own Remote Play settings in Steam can lower them. Automatic bitrate lets the PC decide. HDR needs H.265 and a game that supports it. These can't change during a stream.")
+			if customHostName == nil {
+				Text("To give a PC its own video settings, open its settings from the PC list.")
 			}
 		}
 	}
 }
 
-/// The stream menu's view of the video settings: what this session asked for, not editable
+extension StreamSettings {
+	var bitrateLabel: String {
+		bitrateMbps == Self.automaticBitrate ? "Automatic" : "\(bitrateMbps) Mbps"
+	}
+}
+
+/// The stream menu's view of the video settings: what this stream asked for, not editable
 struct VideoSettingsSummary: View {
 	let settings: StreamSettings
 	let stats: StreamStats
-	var customGameName: String?
+	var customHostName: String?
 
 	var body: some View {
 		Section {
 			LabeledContent("Resolution", value: settings.resolution.label)
 			LabeledContent("Frame rate", value: "\(settings.fps) fps")
-			LabeledContent("Maximum bitrate", value: "\(settings.bitrateMbps) Mbps")
+			LabeledContent("Maximum bitrate", value: settings.bitrateLabel)
 			LabeledContent("Codec", value: settings.effectiveCodec.label)
 			LabeledContent("HDR", value: settings.hdr ? "On" : "Off")
 			if stats.width > 0 {
 				LabeledContent("Streaming at", value: "\(stats.width)×\(stats.height)")
 			}
 		} header: {
-			Text(customGameName.map { "Video for \($0)" } ?? "Video")
+			Text(customHostName.map { "Video for \($0)" } ?? "Video")
 		} footer: {
-			Text("GeForce NOW fixes these when it sets up the game, so change them in Settings (or the game's own video settings) before you play. Streaming at is what your membership and the game actually allow.")
+			Text("These are fixed when the stream starts, so change them in Settings (or the PC's own video settings) before you play. Streaming at is what the PC is actually sending.")
 		}
 	}
 }
 
-/// A game's own video settings, for example 4K and HDR for one game and 1080p120 for another
-struct GameSettingsView: View {
-	let game: GFNGame
+/// A PC's own video settings, for example 4K on the desktop and 1080p120 on the laptop
+struct HostVideoSettingsView: View {
+	let host: PCHost
 
-	@Environment(GameSettingsStore.self) private var games
+	@Environment(HostStore.self) private var hosts
 	@Environment(SettingsStore.self) private var store
 	@Environment(\.dismiss) private var dismiss
 
+	private var saved: PCHost { hosts.host(id: host.id) ?? host }
+
 	private var rows: [GamepadRow] {
 		let toggle = GamepadRow.toggle("custom", custom)
-		guard games.settings(for: game.id) != nil else { return [toggle] }
+		guard saved.settings.video != nil else { return [toggle] }
 		return [toggle] + VideoSettingsSection.gamepadRows(settings)
 	}
 
 	private var custom: Binding<Bool> {
 		Binding(
-			get: { games.settings(for: game.id) != nil },
+			get: { saved.settings.video != nil },
 			// Start from the shared settings, so turning it on changes nothing until you edit
-			set: { games.set($0 ? store.settings.video : nil, for: game.id) })
+			set: { on in
+				var updated = saved
+				updated.settings.video = on ? store.settings.video : nil
+				hosts.update(updated)
+			})
 	}
 
 	private var settings: Binding<StreamSettings> {
 		Binding(
-			get: { store.settings.applying(games.settings(for: game.id)) },
+			get: { store.settings.applying(saved.settings.video) },
 			set: { new in
-				guard games.settings(for: game.id) != nil else { return }
-				games.set(new.video, for: game.id)
+				guard saved.settings.video != nil else { return }
+				var updated = saved
+				updated.settings.video = new.video
+				hosts.update(updated)
 			})
 	}
 
@@ -583,13 +598,13 @@ struct GameSettingsView: View {
 					Toggle("Custom video settings", isOn: custom)
 						.gamepadRow("custom")
 				} footer: {
-					Text("Give \(game.title) its own resolution, frame rate, bitrate, codec and HDR. Display and controller settings are always shared.")
+					Text("Give \(saved.name) its own resolution, frame rate, bitrate, codec and HDR. Display and controller settings are always shared.")
 				}
-				if games.settings(for: game.id) != nil {
-					VideoSettingsSection(settings: settings, customGameName: game.title)
+				if saved.settings.video != nil {
+					VideoSettingsSection(settings: settings, customHostName: saved.name)
 				}
 			}
-			.navigationTitle(game.title)
+			.navigationTitle(saved.name)
 			.navigationBarTitleDisplayMode(.inline)
 			.toolbar {
 				ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -599,30 +614,14 @@ struct GameSettingsView: View {
 	}
 }
 
-/// Account first, then the stream settings
+/// The stream settings shared by every PC
 struct SettingsView: View {
 	@Environment(SettingsStore.self) private var store
-	@Environment(GFNAccountStore.self) private var accounts
 	@Environment(\.dismiss) private var dismiss
-	@State private var confirmSignOut = false
-	/// A controller signs out with a second press instead of the dialog
-	@State private var signOutArmed = false
 	@State private var navigation = SettingsNavigation()
 
-	private func signOut() {
-		accounts.signOut()
-		GFNLibrary.clearCache()
-		dismiss()
-	}
-
 	private var rows: [GamepadRow] {
-		var rows: [GamepadRow] = []
-		if accounts.account != nil {
-			rows.append(GamepadRow(id: "signOut", confirmLabel: signOutArmed ? "Confirm sign out" : "Sign out", activate: {
-				if signOutArmed { signOut() } else { signOutArmed = true }
-			}))
-		}
-		return rows + StreamSettingsForm.gamepadRows(settingsBinding) { navigation.open($0) }
+		StreamSettingsForm.gamepadRows(settingsBinding) { navigation.open($0) }
 	}
 
 	private var settingsBinding: Binding<StreamSettings> {
@@ -633,23 +632,6 @@ struct SettingsView: View {
 		@Bindable var navigation = navigation
 		NavigationStack(path: $navigation.path) {
 			Form {
-				if let account = accounts.account {
-					Section {
-						LabeledContent("Signed in as", value: account.displayName)
-						if let email = account.email {
-							LabeledContent("Email", value: email)
-						}
-						LabeledContent("Membership", value: account.tierName ?? "Unknown")
-						LabeledContent("Provider", value: account.provider.displayName)
-						Button(signOutArmed ? "Press again to sign out" : "Sign out", role: .destructive) {
-							confirmSignOut = true
-						}
-						.gamepadRow("signOut")
-					} header: {
-						Text("Account")
-					}
-				}
-
 				StreamSettingsForm(settings: settingsBinding)
 			}
 			.navigationTitle("Settings")
@@ -658,16 +640,7 @@ struct SettingsView: View {
 				ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
 			}
 			.settingsPages(settingsBinding, navigation: navigation)
-			.gamepadForm(rows, backLabel: "Done", active: navigation.path.isEmpty && !confirmSignOut) { dismiss() }
-			.task { await accounts.refreshTier() }
-			.task(id: signOutArmed) {
-				guard signOutArmed else { return }
-				try? await Task.sleep(for: .seconds(3))
-				signOutArmed = false
-			}
-			.confirmationDialog("Sign out of GeForce NOW?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-				Button("Sign out", role: .destructive, action: signOut)
-			}
+			.gamepadForm(rows, backLabel: "Done", active: navigation.path.isEmpty) { dismiss() }
 		}
 	}
 }

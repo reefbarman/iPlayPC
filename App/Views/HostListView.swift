@@ -4,7 +4,9 @@ import SwiftUI
 struct HostListView: View {
 	@Environment(HostStore.self) private var store
 	@State private var pairing: PCHost?
+	@State private var playing: PCHost?
 	@State private var showingAdd = false
+	@State private var showingSettings = false
 
 	var body: some View {
 		NavigationStack {
@@ -22,7 +24,7 @@ struct HostListView: View {
 					Section {
 						ForEach(store.hosts) { host in
 							HostRow(name: host.name, address: host.address, status: store.status(of: host), paired: host.isPaired) {
-								if !host.isPaired { pairing = host }
+								if host.isPaired { playing = host } else { pairing = host }
 							}
 							.swipeActions {
 								Button("Remove", role: .destructive) { store.remove(host) }
@@ -44,7 +46,22 @@ struct HostListView: View {
 			.toolbar {
 				ToolbarItem(placement: .topBarTrailing) {
 					Button { showingAdd = true } label: { Image(systemName: "plus") }
+						.accessibilityLabel("Add a PC")
 				}
+				ToolbarItem(placement: .topBarTrailing) {
+					Button { showingSettings = true } label: { Image(systemName: "gearshape") }
+						.accessibilityLabel("Settings")
+				}
+			}
+			.sheet(isPresented: $showingSettings) {
+				SettingsView()
+			}
+			.fullScreenCover(item: $playing) { host in
+				StreamView(host: host)
+			}
+			// The sweep isn't needed while streaming; keep the network quiet
+			.onChange(of: playing == nil) { _, idle in
+				if idle { store.startDiscovery() } else { store.stopDiscovery() }
 			}
 			.sheet(isPresented: $showingAdd) {
 				AddHostView { host in
@@ -56,7 +73,13 @@ struct HostListView: View {
 				PairView(host: host)
 			}
 		}
-		.onAppear { store.startDiscovery() }
+		.onAppear {
+			store.startDiscovery()
+			// Development: `-autoplay` streams from the first paired PC (devicectl launch)
+			if ProcessInfo.processInfo.arguments.contains("-autoplay"), playing == nil {
+				playing = store.hosts.first { $0.isPaired }
+			}
+		}
 	}
 }
 

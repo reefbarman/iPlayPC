@@ -1,7 +1,6 @@
 import CoreHaptics
 import CoreMotion
 import GameController
-import NVSTKit
 import os
 import simd
 import SwiftUI
@@ -36,7 +35,7 @@ final class ControllerTester {
 		var shakeHz: Double
 	}
 
-	private(set) var pad = NVSTGamepad()
+	private(set) var pad = GamepadState()
 	private(set) var style = ControllerStyle.xbox
 	/// Xbox Series Share button: shown, but GeForce NOW doesn't get it
 	private(set) var sharePressed = false
@@ -637,11 +636,11 @@ struct ControllerTestView: View {
 
 	private var buttonNames: [(UInt16, String)] {
 		[
-			(NVSTGamepad.a, style.a), (NVSTGamepad.b, style.b), (NVSTGamepad.x, style.x), (NVSTGamepad.y, style.y),
-			(NVSTGamepad.dpadUp, "Up"), (NVSTGamepad.dpadDown, "Down"), (NVSTGamepad.dpadLeft, "Left"), (NVSTGamepad.dpadRight, "Right"),
-			(NVSTGamepad.leftShoulder, style.lb), (NVSTGamepad.rightShoulder, style.rb),
-			(NVSTGamepad.leftThumb, style.leftStickClick), (NVSTGamepad.rightThumb, style.rightStickClick),
-			(NVSTGamepad.back, style.view), (NVSTGamepad.start, style.menu), (NVSTGamepad.guide, style.home),
+			(GamepadState.a, style.a), (GamepadState.b, style.b), (GamepadState.x, style.x), (GamepadState.y, style.y),
+			(GamepadState.dpadUp, "Up"), (GamepadState.dpadDown, "Down"), (GamepadState.dpadLeft, "Left"), (GamepadState.dpadRight, "Right"),
+			(GamepadState.leftShoulder, style.lb), (GamepadState.rightShoulder, style.rb),
+			(GamepadState.leftThumb, style.leftStickClick), (GamepadState.rightThumb, style.rightStickClick),
+			(GamepadState.back, style.view), (GamepadState.start, style.menu), (GamepadState.guide, style.home),
 		]
 	}
 
@@ -662,11 +661,11 @@ struct ControllerTestView: View {
 	}
 
 	private static let controls: [(UInt16, ControllerScene.Control)] = [
-		(NVSTGamepad.a, .a), (NVSTGamepad.b, .b), (NVSTGamepad.x, .x), (NVSTGamepad.y, .y),
-		(NVSTGamepad.dpadUp, .up), (NVSTGamepad.dpadDown, .down), (NVSTGamepad.dpadLeft, .left), (NVSTGamepad.dpadRight, .right),
-		(NVSTGamepad.leftShoulder, .lb), (NVSTGamepad.rightShoulder, .rb),
-		(NVSTGamepad.leftThumb, .leftStick), (NVSTGamepad.rightThumb, .rightStick),
-		(NVSTGamepad.back, .view), (NVSTGamepad.start, .menu), (NVSTGamepad.guide, .home),
+		(GamepadState.a, .a), (GamepadState.b, .b), (GamepadState.x, .x), (GamepadState.y, .y),
+		(GamepadState.dpadUp, .up), (GamepadState.dpadDown, .down), (GamepadState.dpadLeft, .left), (GamepadState.dpadRight, .right),
+		(GamepadState.leftShoulder, .lb), (GamepadState.rightShoulder, .rb),
+		(GamepadState.leftThumb, .leftStick), (GamepadState.rightThumb, .rightStick),
+		(GamepadState.back, .view), (GamepadState.start, .menu), (GamepadState.guide, .home),
 	]
 
 	/// What the 3D controller shows

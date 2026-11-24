@@ -1,6 +1,5 @@
 import CoreMotion
 import GameController
-import NVSTKit
 import os
 import UIKit
 
@@ -13,7 +12,7 @@ import UIKit
 ///   controller if it has sensors, otherwise from the phone (e.g. a Backbone).
 final class ControllerInput {
 	/// Called on the main thread with the latest pad state.
-	var onPad: ((NVSTGamepad) -> Void)?
+	var onPad: ((GamepadState) -> Void)?
 	/// Any thread, whenever motion is read: gyro rad/s and accel g (+1 g up at rest), in the
 	/// same axes as `onGyroAim`, and the sensor's microseconds. For the Controller Test.
 	var onMotion: ((SIMD3<Float>, SIMD3<Float>, UInt32) -> Void)?
@@ -50,7 +49,7 @@ final class ControllerInput {
 	private let motionQueue = OperationQueue()
 	private var observers: [NSObjectProtocol] = []
 	private var comboTimer: Timer?
-	private var lastPad = NVSTGamepad()
+	private var lastPad = GamepadState()
 
 	/// Rumble on the controller or the phone
 	let feedback = ControllerFeedback()
@@ -93,7 +92,7 @@ final class ControllerInput {
 		}
 		controller = nil
 		controllerName = nil
-		lastPad = NVSTGamepad()
+		lastPad = GamepadState()
 		feedback.detach()
 	}
 
@@ -125,7 +124,7 @@ final class ControllerInput {
 		calibration.withLock { $0.reset() }
 		feedback.attach(next)
 		guard let next, let pad = next.extendedGamepad else {
-			lastPad = NVSTGamepad()
+			lastPad = GamepadState()
 			onPad?(lastPad)
 			startPhoneMotion()
 			return
@@ -166,24 +165,24 @@ final class ControllerInput {
 		var b: UInt16 = 0
 		func set(_ pressed: Bool, _ flag: UInt16) { if pressed { b |= flag } }
 
-		set(pad.buttonA.isPressed, NVSTGamepad.a)
-		set(pad.buttonB.isPressed, NVSTGamepad.b)
-		set(pad.buttonX.isPressed, NVSTGamepad.x)
-		set(pad.buttonY.isPressed, NVSTGamepad.y)
-		set(pad.dpad.left.isPressed, NVSTGamepad.dpadLeft)
-		set(pad.dpad.right.isPressed, NVSTGamepad.dpadRight)
-		set(pad.dpad.up.isPressed, NVSTGamepad.dpadUp)
-		set(pad.dpad.down.isPressed, NVSTGamepad.dpadDown)
-		set(pad.leftShoulder.isPressed, NVSTGamepad.leftShoulder)
-		set(pad.rightShoulder.isPressed, NVSTGamepad.rightShoulder)
-		set(pad.leftThumbstickButton?.isPressed ?? false, NVSTGamepad.leftThumb)
-		set(pad.rightThumbstickButton?.isPressed ?? false, NVSTGamepad.rightThumb)
-		set(pad.buttonMenu.isPressed, NVSTGamepad.start)
-		set(pad.buttonHome?.isPressed ?? false, NVSTGamepad.guide)
+		set(pad.buttonA.isPressed, GamepadState.a)
+		set(pad.buttonB.isPressed, GamepadState.b)
+		set(pad.buttonX.isPressed, GamepadState.x)
+		set(pad.buttonY.isPressed, GamepadState.y)
+		set(pad.dpad.left.isPressed, GamepadState.dpadLeft)
+		set(pad.dpad.right.isPressed, GamepadState.dpadRight)
+		set(pad.dpad.up.isPressed, GamepadState.dpadUp)
+		set(pad.dpad.down.isPressed, GamepadState.dpadDown)
+		set(pad.leftShoulder.isPressed, GamepadState.leftShoulder)
+		set(pad.rightShoulder.isPressed, GamepadState.rightShoulder)
+		set(pad.leftThumbstickButton?.isPressed ?? false, GamepadState.leftThumb)
+		set(pad.rightThumbstickButton?.isPressed ?? false, GamepadState.rightThumb)
+		set(pad.buttonMenu.isPressed, GamepadState.start)
+		set(pad.buttonHome?.isPressed ?? false, GamepadState.guide)
 		let viewPressed = pad.buttonOptions?.isPressed ?? false
-		set(viewPressed, NVSTGamepad.back)
+		set(viewPressed, GamepadState.back)
 
-		var state = NVSTGamepad()
+		var state = GamepadState()
 		state.buttons = b
 		state.leftTrigger = UInt8(clamping: Int((pad.leftTrigger.value * 255).rounded()))
 		state.rightTrigger = UInt8(clamping: Int((pad.rightTrigger.value * 255).rounded()))

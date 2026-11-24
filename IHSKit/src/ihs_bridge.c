@@ -6,10 +6,14 @@
 
 #include <ihslib.h>
 
+#include <opus.h>
+
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // ------------------------------------------------------------------ library
 
@@ -285,4 +289,397 @@ bool ihk_client_request_stream(IHKClient *c, const IHKHost *host, const IHKStrea
     r.audioChannelCount = request->audio_channels > 0 ? request->audio_channels : 2;
     r.streamingInterface = (IHS_StreamInterface) request->streaming_interface;
     return IHS_ClientStreamingRequest(c->client, &info, &r);
+}
+
+// ------------------------------------------------------------------ session
+
+// Decoded audio waits here for the render thread: 200 ms of stereo at 48 kHz.
+// If playback falls behind past AUDIO_MAX_FRAMES we drop the oldest audio down
+// to AUDIO_TRIM_FRAMES so latency can't creep up.
+#define AUDIO_RATE 48000
+#define AUDIO_RING_FRAMES 9600
+#define AUDIO_MAX_FRAMES 4800
+#define AUDIO_TRIM_FRAMES 1920
+#define OPUS_MAX_FRAMES 5760  // 120 ms, the longest Opus packet
+
+struct IHKSession {
+    IHS_Session *session;
+    IHKSessionConfig config;
+    IHKSessionCallbacks cb;
+    char device_name[128];
+    uint8_t secret_key[32];
+    bool started;
+    // ihslib keeps one disconnect timer per session; a second disconnect
+    // overwrites it and the first then fires on the freed session
+    atomic_bool disconnecting;
+
+    OpusDecoder *opus;
+    float decoded[OPUS_MAX_FRAMES * 2];
+    pthread_mutex_t audio_lock;
+    float ring[AUDIO_RING_FRAMES * 2];
+    size_t ring_read;   // frame index
+    size_t ring_count;  // frames buffered
+
+    uint64_t last_lost_report_ms;
+};
+
+static uint64_t now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000 + (uint64_t) ts.tv_nsec / 1000000;
+}
+
+static void session_configuring(IHS_Session *session, IHS_SessionConfig *config, void *context) {
+    IHKSession *s = context;
+    const IHKSessionConfig *c = &s->config;
+    config->enableAudio = c->enable_audio;
+    config->enableHevc = c->enable_hevc;
+    config->maxBitrateKbps = c->max_bitrate_kbps;
+    config->quality = c->quality;
+    config->maxResolutionX = c->max_width;
+    config->maxResolutionY = c->max_height;
+    config->refreshRateNum = c->refresh_num;
+    config->refreshRateDen = c->refresh_den;
+    config->displayWidth = c->display_width;
+    config->displayHeight = c->display_height;
+}
+
+static void session_connected(IHS_Session *session, void *context) {
+    IHKSession *s = context;
+    if (s->cb.on_connected != NULL) {
+        s->cb.on_connected(s->cb.user);
+    }
+}
+
+static void session_disconnected(IHS_Session *session, void *context) {
+    IHKSession *s = context;
+    if (s->cb.on_disconnected != NULL) {
+        s->cb.on_disconnected(s->cb.user);
+    }
+}
+
+static int video_start(IHS_Session *session, const IHS_StreamVideoConfig *config, void *context) {
+    IHKSession *s = context;
+    if (config->codec != IHS_StreamVideoCodecH264 && config->codec != IHS_StreamVideoCodecHEVC) {
+        ihk_log(IHK_LOG_ERROR, "Video: unsupported codec");
+        return -1;
+    }
+    if (s->cb.on_video_start != NULL) {
+        s->cb.on_video_start(s->cb.user, (IHKVideoCodec) config->codec, config->width, config->height);
+    }
+    return 0;
+}
+
+static IHS_StreamVideoSubmitResult video_submit(IHS_Session *session, IHS_Buffer *data, IHS_StreamVideoFrameFlag flags,
+                                                void *context) {
+    IHKSession *s = context;
+    const bool keyframe = (flags & IHS_StreamVideoFrameKeyFrame) != 0;
+    const uint16_t frame_id = IHS_SessionLastSubmittedVideoFrameId(session);
+    IHS_SessionReportVideoFrameStage(session, frame_id, IHS_VideoFrameStageDecodeBegin, 0);
+    bool ok = true;
+    if (s->cb.on_video_frame != NULL) {
+        ok = s->cb.on_video_frame(s->cb.user, IHS_BufferPointer(data), data->size, keyframe);
+    }
+    IHS_SessionReportVideoFrameStage(session, frame_id, IHS_VideoFrameStageDecodeEnd, 0);
+    // The host's adaptive bitrate and frame rate key off these reports.
+    IHS_SessionReportVideoFrameComplete(session, frame_id,
+                                        ok ? IHS_VideoFrameResultDisplayed : IHS_VideoFrameResultDroppedDecodeCorrupt);
+    if (ok) {
+        return IHS_StreamVideoSubmitOK;
+    }
+    // Reporting a loss makes ihslib ask for a keyframe. On a lossy link asking
+    // every frame snowballs (keyframes are big, so more loss), so ask at most
+    // once a second.
+    const uint64_t now = now_ms();
+    if (!keyframe && now - s->last_lost_report_ms > 1000) {
+        s->last_lost_report_ms = now;
+        return IHS_StreamVideoSubmitReportLost;
+    }
+    return IHS_StreamVideoSubmitOK;
+}
+
+static void video_stop(IHS_Session *session, void *context) {
+    IHKSession *s = context;
+    if (s->cb.on_video_stop != NULL) {
+        s->cb.on_video_stop(s->cb.user);
+    }
+}
+
+static void video_target_framerate(IHS_Session *session, uint32_t numerator, uint32_t denominator, uint32_t reasons,
+                                   void *context) {
+    IHKSession *s = context;
+    if (s->cb.on_target_framerate != NULL) {
+        s->cb.on_target_framerate(s->cb.user, numerator, denominator);
+    }
+}
+
+static void video_target_bitrate(IHS_Session *session, int32_t bitrate, void *context) {
+    IHKSession *s = context;
+    if (s->cb.on_target_bitrate != NULL) {
+        s->cb.on_target_bitrate(s->cb.user, bitrate);
+    }
+}
+
+static void audio_reset(IHKSession *s) {
+    pthread_mutex_lock(&s->audio_lock);
+    s->ring_read = 0;
+    s->ring_count = 0;
+    pthread_mutex_unlock(&s->audio_lock);
+}
+
+static int audio_start(IHS_Session *session, const IHS_StreamAudioConfig *config, void *context) {
+    IHKSession *s = context;
+    if (config->codec != IHS_StreamAudioCodecOpus) {
+        ihk_log(IHK_LOG_ERROR, "Audio: unsupported codec");
+        return -1;
+    }
+    if (s->opus != NULL) {
+        opus_decoder_destroy(s->opus);
+        s->opus = NULL;
+    }
+    // Always decode to 48 kHz stereo: Opus resamples and up/downmixes for us.
+    int error = 0;
+    s->opus = opus_decoder_create(AUDIO_RATE, 2, &error);
+    if (s->opus == NULL || error != OPUS_OK) {
+        ihk_log(IHK_LOG_ERROR, "Audio: Opus decoder failed");
+        s->opus = NULL;
+        return -1;
+    }
+    audio_reset(s);
+    if (s->cb.on_audio_start != NULL) {
+        s->cb.on_audio_start(s->cb.user, config->channels, config->frequency);
+    }
+    return 0;
+}
+
+static int audio_submit(IHS_Session *session, IHS_Buffer *data, void *context) {
+    IHKSession *s = context;
+    if (s->opus == NULL) {
+        return 0;
+    }
+    const int frames = opus_decode_float(s->opus, IHS_BufferPointer(data), (opus_int32) data->size, s->decoded,
+                                         OPUS_MAX_FRAMES, 0);
+    if (frames <= 0) {
+        return 0;
+    }
+    pthread_mutex_lock(&s->audio_lock);
+    for (int i = 0; i < frames; i++) {
+        if (s->ring_count == AUDIO_RING_FRAMES) {
+            s->ring_read = (s->ring_read + 1) % AUDIO_RING_FRAMES;
+            s->ring_count--;
+        }
+        const size_t at = (s->ring_read + s->ring_count) % AUDIO_RING_FRAMES;
+        s->ring[at * 2] = s->decoded[i * 2];
+        s->ring[at * 2 + 1] = s->decoded[i * 2 + 1];
+        s->ring_count++;
+    }
+    if (s->ring_count > AUDIO_MAX_FRAMES) {
+        const size_t drop = s->ring_count - AUDIO_TRIM_FRAMES;
+        s->ring_read = (s->ring_read + drop) % AUDIO_RING_FRAMES;
+        s->ring_count -= drop;
+    }
+    pthread_mutex_unlock(&s->audio_lock);
+    return 0;
+}
+
+static void audio_stop(IHS_Session *session, void *context) {
+    IHKSession *s = context;
+    audio_reset(s);
+    if (s->cb.on_audio_stop != NULL) {
+        s->cb.on_audio_stop(s->cb.user);
+    }
+}
+
+static bool input_set_cursor(IHS_Session *session, uint64_t cursor_id, void *context) {
+    // We draw no host cursor; saying we have it stops ihslib asking for images.
+    return true;
+}
+
+static const IHS_StreamSessionCallbacks session_callbacks = {
+    .configuring = session_configuring,
+    .connected = session_connected,
+    .disconnected = session_disconnected,
+};
+
+static const IHS_StreamVideoCallbacks video_callbacks = {
+    .start = video_start,
+    .submit = video_submit,
+    .stop = video_stop,
+    .setTargetFramerate = video_target_framerate,
+    .setTargetBitrate = video_target_bitrate,
+};
+
+static const IHS_StreamAudioCallbacks audio_callbacks = {
+    .start = audio_start,
+    .submit = audio_submit,
+    .stop = audio_stop,
+};
+
+static const IHS_StreamInputCallbacks input_callbacks = {
+    .setCursor = input_set_cursor,
+};
+
+IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, const uint8_t secret_key[32],
+                               const IHKStreamGrant *grant, const IHKSessionConfig *config,
+                               const IHKSessionCallbacks *callbacks) {
+    ihk_lib_init();
+    if (grant == NULL || secret_key == NULL) {
+        return NULL;
+    }
+    IHKSession *s = calloc(1, sizeof(IHKSession));
+    if (s == NULL) {
+        return NULL;
+    }
+    pthread_mutex_init(&s->audio_lock, NULL);
+    if (config != NULL) {
+        s->config = *config;
+    }
+    if (callbacks != NULL) {
+        s->cb = *callbacks;
+    }
+    if (device_name != NULL) {
+        strncpy(s->device_name, device_name, sizeof(s->device_name) - 1);
+    }
+    memcpy(s->secret_key, secret_key, sizeof(s->secret_key));
+
+    IHS_ClientConfig client_config = {
+        .deviceId = device_id,
+        .secretKey = s->secret_key,
+        .deviceName = s->device_name,
+    };
+    IHS_SessionInfo info;
+    memset(&info, 0, sizeof(info));
+    if (!address_from_string(grant->address, &info.address.ip)) {
+        ihk_log(IHK_LOG_ERROR, "Session: bad address");
+        pthread_mutex_destroy(&s->audio_lock);
+        free(s);
+        return NULL;
+    }
+    info.address.port = grant->port;
+    info.sessionKeyLen = grant->session_key_len;
+    memcpy(info.sessionKey, grant->session_key, grant->session_key_len);
+    info.steamId = 0;
+
+    s->session = IHS_SessionCreate(&client_config, &info);
+    if (s->session == NULL) {
+        pthread_mutex_destroy(&s->audio_lock);
+        free(s);
+        return NULL;
+    }
+    IHS_SessionSetLogFunction(s->session, ihk_log_sink);
+    IHS_SessionSetSessionCallbacks(s->session, &session_callbacks, s);
+    IHS_SessionSetVideoCallbacks(s->session, &video_callbacks, s);
+    IHS_SessionSetAudioCallbacks(s->session, &audio_callbacks, s);
+    IHS_SessionSetInputCallbacks(s->session, &input_callbacks, s);
+    return s;
+}
+
+bool ihk_session_start(IHKSession *s) {
+    if (s == NULL || s->started) {
+        return false;
+    }
+    s->started = IHS_SessionConnect(s->session);
+    return s->started;
+}
+
+static void session_disconnect_once(IHKSession *s) {
+    if (!atomic_exchange(&s->disconnecting, true)) {
+        IHS_SessionDisconnect(s->session);
+    }
+}
+
+void ihk_session_stop(IHKSession *s) {
+    if (s == NULL || !s->started) {
+        return;
+    }
+    session_disconnect_once(s);
+}
+
+void ihk_session_destroy(IHKSession *s) {
+    if (s == NULL) {
+        return;
+    }
+    if (s->started) {
+        session_disconnect_once(s);
+        IHS_SessionThreadedJoin(s->session);
+    }
+    IHS_SessionDestroy(s->session);
+    if (s->opus != NULL) {
+        opus_decoder_destroy(s->opus);
+    }
+    pthread_mutex_destroy(&s->audio_lock);
+    free(s);
+}
+
+size_t ihk_session_read_audio(IHKSession *s, float *out, size_t frames) {
+    if (s == NULL || out == NULL) {
+        return 0;
+    }
+    pthread_mutex_lock(&s->audio_lock);
+    const size_t n = frames < s->ring_count ? frames : s->ring_count;
+    for (size_t i = 0; i < n; i++) {
+        const size_t at = (s->ring_read + i) % AUDIO_RING_FRAMES;
+        out[i * 2] = s->ring[at * 2];
+        out[i * 2 + 1] = s->ring[at * 2 + 1];
+    }
+    s->ring_read = (s->ring_read + n) % AUDIO_RING_FRAMES;
+    s->ring_count -= n;
+    pthread_mutex_unlock(&s->audio_lock);
+    return n;
+}
+
+size_t ihk_session_audio_buffered(IHKSession *s) {
+    if (s == NULL) {
+        return 0;
+    }
+    pthread_mutex_lock(&s->audio_lock);
+    const size_t n = s->ring_count;
+    pthread_mutex_unlock(&s->audio_lock);
+    return n;
+}
+
+bool ihk_session_mouse_position(IHKSession *s, float x, float y) {
+    return s != NULL && IHS_SessionSendMousePosition(s->session, x, y);
+}
+
+bool ihk_session_mouse_move(IHKSession *s, int32_t dx, int32_t dy) {
+    return s != NULL && IHS_SessionSendMouseMovement(s->session, dx, dy);
+}
+
+bool ihk_session_mouse_button(IHKSession *s, IHKMouseButton button, bool down) {
+    if (s == NULL) {
+        return false;
+    }
+    return down ? IHS_SessionSendMouseDown(s->session, (IHS_StreamInputMouseButton) button)
+                : IHS_SessionSendMouseUp(s->session, (IHS_StreamInputMouseButton) button);
+}
+
+bool ihk_session_mouse_wheel(IHKSession *s, IHKWheelDirection direction) {
+    return s != NULL && IHS_SessionSendMouseWheel(s->session, (IHS_StreamInputMouseWheelDirection) direction);
+}
+
+bool ihk_session_key(IHKSession *s, uint32_t scancode, bool down) {
+    if (s == NULL) {
+        return false;
+    }
+    return down ? IHS_SessionSendKeyDown(s->session, scancode) : IHS_SessionSendKeyUp(s->session, scancode);
+}
+
+bool ihk_session_text(IHKSession *s, const char *utf8) {
+    return s != NULL && utf8 != NULL && IHS_SessionSendText(s->session, utf8);
+}
+
+bool ihk_session_touch(IHKSession *s, uint64_t finger, IHKTouchPhase phase, float x, float y) {
+    if (s == NULL) {
+        return false;
+    }
+    switch (phase) {
+    case IHK_TOUCH_DOWN:
+        return IHS_SessionSendTouchDown(s->session, finger, x, y);
+    case IHK_TOUCH_MOVE:
+        return IHS_SessionSendTouchMotion(s->session, finger, x, y);
+    case IHK_TOUCH_UP:
+        return IHS_SessionSendTouchUp(s->session, finger, x, y);
+    }
+    return false;
 }

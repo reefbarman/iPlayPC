@@ -5,7 +5,7 @@ import UIKit
 
 private let ihsLog = Logger(subsystem: logSubsystem, category: "steam")
 
-/// Steam Remote Play through IHSKit: discovery, PIN pairing and (later) streams.
+/// Steam Remote Play through IHSKit: discovery, PIN pairing and streams.
 ///
 /// One IHSKit client serves the whole app. Its secret key is switched to the
 /// PC's own key before streaming from that PC, so concurrent operations on
@@ -26,6 +26,9 @@ final class SteamBackend: StreamBackend {
 	private var client: OpaquePointer?
 	private var listeners: [UUID: AsyncStream<DiscoveredHost>.Continuation] = [:]
 	private var pendingPair: CheckedContinuation<Data, Error>?
+	private var pendingStream: CheckedContinuation<IHKStreamGrant, Error>?
+	/// The latest discovery answer from each PC, by host id
+	private var seen: [UInt64: IHKHost] = [:]
 
 	private let deviceID: UInt64
 	private let deviceName: String
@@ -37,13 +40,14 @@ final class SteamBackend: StreamBackend {
 		deviceName = UIDevice.current.name
 		ihk_set_log_callback({ _, level, tag, message in
 			let text = "[\(tag.map { String(cString: $0) } ?? "")] \(message.map { String(cString: $0) } ?? "")"
+			consoleLog(text)
 			switch level {
 			case IHK_LOG_FATAL, IHK_LOG_ERROR: ihsLog.error("\(text, privacy: .public)")
 			case IHK_LOG_WARN: ihsLog.warning("\(text, privacy: .public)")
 			case IHK_LOG_INFO: ihsLog.info("\(text, privacy: .public)")
 			default: ihsLog.debug("\(text, privacy: .public)")
 			}
-		}, nil, IHK_LOG_INFO)
+		}, nil, mirrorsLogToConsole ? IHK_LOG_DEBUG : IHK_LOG_INFO)
 	}
 
 	// MARK: - Identity
@@ -93,6 +97,19 @@ final class SteamBackend: StreamBackend {
 		callbacks.on_auth_failed = { user, _, result in
 			guard let user else { return }
 			Unmanaged<SteamBackend>.fromOpaque(user).takeUnretainedValue().finishPairing(.failure(SteamBackend.pairingError(result)))
+		}
+		callbacks.on_stream_progress = { _, _ in
+			ihsLog.info("PC is starting the stream")
+		}
+		callbacks.on_stream_success = { user, _, grant in
+			guard let user, let grant else { return }
+			Unmanaged<SteamBackend>.fromOpaque(user).takeUnretainedValue().finishStreamRequest(.success(grant.pointee))
+		}
+		callbacks.on_stream_failed = { user, _, result in
+			guard let user else { return }
+			ihsLog.error("Stream request failed: \(result.rawValue)")
+			consoleLog("Stream request failed, result \(result.rawValue)")
+			Unmanaged<SteamBackend>.fromOpaque(user).takeUnretainedValue().finishStreamRequest(.failure(SteamBackend.streamError(result)))
 		}
 		client = deviceName.withCString { name in
 			ihk_client_create(deviceID, name, nil, &callbacks)
@@ -148,7 +165,10 @@ final class SteamBackend: StreamBackend {
 			isBusy: host.games_running
 		)
 		guard host.host_id != 0, !found.address.isEmpty else { return }
-		let targets = lock.withLock { Array(listeners.values) }
+		let targets = lock.withLock { () -> [AsyncStream<DiscoveredHost>.Continuation] in
+			seen[host.host_id] = host
+			return Array(listeners.values)
+		}
 		for continuation in targets { continuation.yield(found) }
 	}
 
@@ -208,9 +228,81 @@ final class SteamBackend: StreamBackend {
 		}
 	}
 
+	// MARK: - Streaming
+
+	func connect(_ host: PCHost, config: StreamConfig) async throws -> StreamConnection {
+		guard let client = ensureClient() else { throw BackendError("Couldn't start networking. Try again.") }
+		guard let key = pairingKey(for: host.id) else {
+			throw BackendError("Pair with this PC first.", needsPairing: true)
+		}
+		key.withUnsafeBytes { ihk_client_set_secret_key(client, $0.bindMemory(to: UInt8.self).baseAddress) }
+		var target = ihkHost(for: host)
+		var request = IHKStreamRequest()
+		request.max_width = Int32(clamping: config.width)
+		request.max_height = Int32(clamping: config.height)
+		request.audio_channels = 2
+		request.streaming_interface = IHK_INTERFACE_BIG_PICTURE
+
+		let grant: IHKStreamGrant = try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { continuation in
+				let busy = lock.withLock { () -> Bool in
+					if pendingStream != nil { return true }
+					pendingStream = continuation
+					return false
+				}
+				if busy {
+					continuation.resume(throwing: BackendError("Already connecting. Try again in a moment."))
+					return
+				}
+				if Task.isCancelled {
+					finishStreamRequest(.failure(CancellationError()))
+					return
+				}
+				guard ihk_client_request_stream(client, &target, &request) else {
+					finishStreamRequest(.failure(BackendError("Couldn't reach the PC. Try again.")))
+					return
+				}
+			}
+		} onCancel: {
+			self.finishStreamRequest(.failure(CancellationError()))
+		}
+		ihsLog.notice("Stream granted at \(cString(&target.address), privacy: .public)")
+		return SteamConnection(deviceID: deviceID, deviceName: deviceName, secretKey: key, grant: grant, config: config)
+	}
+
+	/// Resumes the stream request waiter once
+	private func finishStreamRequest(_ result: Result<IHKStreamGrant, Error>) {
+		let continuation = lock.withLock { () -> CheckedContinuation<IHKStreamGrant, Error>? in
+			defer { pendingStream = nil }
+			return pendingStream
+		}
+		continuation?.resume(with: result)
+	}
+
+	private static func streamError(_ result: IHKStreamResult) -> Error {
+		switch result {
+		case IHK_STREAM_CANCELED: CancellationError()
+		case IHK_STREAM_UNAUTHORIZED, IHK_STREAM_PIN_REQUIRED:
+			BackendError("This PC doesn't know this phone any more. Pair again.", needsPairing: true)
+		case IHK_STREAM_SCREEN_LOCKED: BackendError("Unlock the PC, then try again.")
+		case IHK_STREAM_BUSY, IHK_STREAM_IN_PROGRESS: BackendError("The PC is already streaming. Try again in a moment.")
+		case IHK_STREAM_DRIVERS_NOT_INSTALLED: BackendError("Steam on the PC needs its streaming drivers installed.")
+		case IHK_STREAM_DISABLED: BackendError("Remote Play is turned off in Steam on the PC.")
+		case IHK_STREAM_BROADCASTING_ACTIVE: BackendError("Steam is broadcasting on the PC. Stop it and try again.")
+		case IHK_STREAM_VR_ACTIVE: BackendError("SteamVR is running on the PC. Close it and try again.")
+		case IHK_STREAM_TRANSPORT_UNAVAILABLE: BackendError("Couldn't reach the PC. Try again.")
+		case IHK_STREAM_TIMEOUT: BackendError("The PC didn't answer. Check it's awake and Steam is running.")
+		default: BackendError("The PC couldn't start the stream. Try again.")
+		}
+	}
+
 	// MARK: - Helpers
 
 	private func ihkHost(for host: PCHost) -> IHKHost {
+		// Prefer what the PC itself last told us (instance id, OS, current address)
+		if let id = UInt64(host.id), let found = lock.withLock({ seen[id] }) {
+			return found
+		}
 		var target = IHKHost()
 		target.host_id = UInt64(host.id) ?? 0
 		setCString(&target.address, host.address)

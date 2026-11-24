@@ -1,10 +1,9 @@
 import AVFoundation
-import NVSTKit
 import UIKit
 
 /// Plays the stream's decoded 48 kHz stereo audio with a short output buffer.
 ///
-/// The source node pulls straight from NVSTStream's ring buffer, which trims itself
+/// The source node pulls straight from the connection's ring buffer, which trims itself
 /// if playback ever falls behind.
 ///
 /// iOS stops the engine for phone calls, Siri, and output changes such as
@@ -18,7 +17,7 @@ final class AudioOutput {
 	private var isMuted = false
 
 	/// Read from the render thread. Set before start(), cleared after stop().
-	private var stream: NVSTStream?
+	private var stream: StreamConnection?
 	private var primed = false
 	/// ~20 ms of audio before playback starts or resumes after an underrun
 	private let primeFrames = 960
@@ -57,7 +56,7 @@ final class AudioOutput {
 		scratch.deallocate()
 	}
 
-	func start(stream: NVSTStream) {
+	func start(stream: StreamConnection) {
 		self.stream = stream
 		activateAudioSession()
 

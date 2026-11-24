@@ -2,12 +2,10 @@ import GameController
 import SwiftUI
 
 struct StreamView: View {
-	let game: GFNGame
-	let variant: GFNGameVariant
+	let host: PCHost
 
 	@Environment(SettingsStore.self) private var settingsStore
-	@Environment(GameSettingsStore.self) private var gameSettings
-	@Environment(GFNAccountStore.self) private var accounts
+	@Environment(HostStore.self) private var hosts
 	@Environment(\.dismiss) private var dismiss
 	@Environment(\.scenePhase) private var scenePhase
 	@State private var session: StreamSession?
@@ -36,8 +34,8 @@ struct StreamView: View {
 	/// The iPhone keyboard is up, typing into the game
 	@State private var showKeyboard = false
 
-	/// The shared settings with this game's own video settings on top
-	private var settings: StreamSettings { settingsStore.settings.applying(gameSettings.settings(for: game.id)) }
+	/// The shared settings with this PC's own video settings on top
+	private var settings: StreamSettings { settingsStore.settings.applying(hosts.host(id: host.id)?.settings.video) }
 
 	private var wantsVirtualControls: Bool {
 		switch settings.virtualControls {
@@ -93,6 +91,9 @@ struct StreamView: View {
 			if hot, settings.fps > 30 { flashHeatWarning() }
 		}
 		.onChange(of: settings) { _, new in session?.apply(new) }
+		.onChange(of: session?.needsPairing == true) { _, needs in
+			if needs { hosts.markUnpaired(host) }
+		}
 		.onChange(of: scenePhase) { _, phase in
 			if phase == .active { refreshControllerPresence() } else { session?.setPaused(true) }
 		}
@@ -135,9 +136,6 @@ struct StreamView: View {
 				.ignoresSafeArea()
 			}
 
-			if session?.state != .streaming {
-				artwork.transition(.opacity)
-			}
 
 			if let session {
 				overlay(for: session)
@@ -193,7 +191,7 @@ struct StreamView: View {
 	}
 
 	private func startSession() {
-		let session = StreamSession(accounts: accounts, game: game, variant: variant, settings: settings)
+		let session = hosts.makeSession(for: host, settings: settings)
 		if let orientation = interfaceOrientation {
 			session.input.interfaceOrientation = orientation
 		}
@@ -209,7 +207,7 @@ struct StreamView: View {
 	}
 
 	/// On a foldable, streaming only happens on the inner screen: we wait for the
-	/// unfold before launching, and pause if it's folded mid-session.
+	/// unfold before connecting, and pause if it's folded mid-stream.
 	/// iPhones play in landscape, while an iPad plays in any window shape.
 	private func updateFolded(_ size: CGSize) {
 		guard size.width > 0, size.height > 0 else { return }
@@ -261,7 +259,7 @@ struct StreamView: View {
 		}
 	}
 
-	/// The Xbox button, which opens GeForce NOW's own in-game menu, and the keyboard
+	/// The Xbox button, which opens the Steam overlay, and the keyboard
 	private var guideButton: some View {
 		HStack(spacing: 12) {
 			Button {
@@ -459,12 +457,10 @@ struct StreamView: View {
 	@ViewBuilder
 	private func overlay(for session: StreamSession) -> some View {
 		switch session.state {
-		case .launching:
-			launchOverlay(session)
 		case .connecting:
 			statusCard {
 				ProgressView().controlSize(.large)
-				Text("Connecting to \(game.title)…").font(.headline)
+				Text("Connecting to \(host.name)…").font(.headline)
 				Button("Cancel") { dismiss() }.buttonStyle(.bordered)
 			}
 		case .streaming:
@@ -479,78 +475,16 @@ struct StreamView: View {
 					Image(systemName: "exclamationmark.triangle.fill").font(.largeTitle).foregroundStyle(.yellow)
 					Text(error).multilineTextAlignment(.center).frame(maxWidth: 420)
 				} else {
-					Text("Session ended").font(.headline)
+					Text("Stream ended").font(.headline)
 				}
 				HStack {
 					Button("Close") { dismiss() }.buttonStyle(.bordered)
-					Button("Play again") { session.playAgain() }.buttonStyle(.borderedProminent)
-				}
-			}
-		}
-	}
-
-	@ViewBuilder
-	private func launchOverlay(_ session: StreamSession) -> some View {
-		switch session.launch.phase {
-		case .checking:
-			statusCard {
-				ProgressView().controlSize(.large)
-				Text("Starting \(game.title)…").font(.headline)
-				Button("Cancel") { dismiss() }.buttonStyle(.bordered)
-			}
-		case .queued(let position):
-			statusCard {
-				ProgressView().controlSize(.large)
-				Text("In the queue").font(.headline)
-				Text("Position \(position)").font(.title.bold()).monospacedDigit()
-				Text("\(game.title) starts when a rig is free. You can leave this screen open.")
-					.foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
-				Button("Leave queue") { dismiss() }.buttonStyle(.bordered)
-			}
-		case .settingUp, .ready:
-			statusCard {
-				ProgressView().controlSize(.large)
-				Text("Setting up \(game.title)…").font(.headline)
-				Button("Cancel") { dismiss() }.buttonStyle(.bordered)
-			}
-		case .sessionLimit(let others):
-			statusCard {
-				Image(systemName: "rectangle.stack.badge.minus").font(.largeTitle)
-				Text("Another session is running").font(.headline)
-				let names = others.map { $0.title ?? "A game" }.joined(separator: ", ")
-				Text("\(names) is still running on your account. End it to play \(game.title)?")
-					.foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
-				HStack {
-					Button("Cancel") { dismiss() }.buttonStyle(.bordered)
-					Button("End it and play") { session.launch.stopOtherSessionsAndRetry() }.buttonStyle(.borderedProminent)
-				}
-			}
-		case .failed(let message):
-			statusCard {
-				Image(systemName: "exclamationmark.triangle.fill").font(.largeTitle).foregroundStyle(.yellow)
-				Text(message).multilineTextAlignment(.center).frame(maxWidth: 420)
-				HStack {
-					Button("Close") { dismiss() }.buttonStyle(.bordered)
-					Button("Try again") { session.playAgain() }.buttonStyle(.borderedProminent)
-				}
-			}
-		}
-	}
-
-	/// The game's artwork behind the launch, queue and error cards
-	private var artwork: some View {
-		Color.black
-			.overlay {
-				AsyncImage(url: game.heroURL ?? game.boxArtURL) { phase in
-					if let image = phase.image {
-						image.resizable().aspectRatio(contentMode: .fill).transition(.opacity)
+					if !session.needsPairing {
+						Button("Play again") { session.playAgain() }.buttonStyle(.borderedProminent)
 					}
 				}
 			}
-			.overlay { Color.black.opacity(0.45) }
-			.clipped()
-			.ignoresSafeArea()
-			.allowsHitTesting(false)
+		}
 	}
 
 	private func statusCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -578,7 +512,7 @@ struct StreamView: View {
 				Image(systemName: "rectangle.portrait.and.arrow.forward").font(.largeTitle)
 				if session == nil {
 					Text("Open your phone to play").font(.title2.bold())
-					Text("\(game.title) starts as soon as you unfold.").foregroundStyle(.secondary)
+					Text("\(host.name) connects as soon as you unfold.").foregroundStyle(.secondary)
 					Button("Cancel") { dismiss() }.buttonStyle(.bordered).padding(.top, 8)
 				} else {
 					Text("Paused").font(.title2.bold())
@@ -617,10 +551,10 @@ struct StreamView: View {
 						.gamepadRow("resume")
 					Button("Type with the keyboard", action: openKeyboardFromMenu)
 						.gamepadRow("keyboard")
-					Button(quitArmed ? "Press again to quit" : "Quit game", role: .destructive, action: quit)
+					Button(quitArmed ? "Press again to quit" : "Quit", role: .destructive, action: quit)
 						.gamepadRow("quit")
 				} footer: {
-					Text("Quitting ends the session on GeForce NOW.")
+					Text("Quitting ends the stream. Games keep running on your PC.")
 				}
 				Section {
 					LabeledContent {
@@ -636,14 +570,14 @@ struct StreamView: View {
 				} header: {
 					Text(DeviceLayout.isPad ? "iPad" : "Phone")
 				}
-				// Resolution, frame rate, bitrate, codec and HDR are fixed once the rig is set up
+				// Resolution, frame rate, bitrate, codec and HDR are fixed once the stream starts
 				if let session {
 					VideoSettingsSummary(settings: session.streamSettings, stats: session.stats,
-						customGameName: gameSettings.settings(for: game.id) != nil ? game.title : nil)
+						customHostName: hosts.host(id: host.id)?.settings.video != nil ? host.name : nil)
 				}
 				StreamSettingsForm(settings: menuSettings, showsVideo: false)
 			}
-			.navigationTitle(game.title)
+			.navigationTitle(host.name)
 			.navigationBarTitleDisplayMode(.inline)
 			.settingsPages(menuSettings, navigation: menuNavigation)
 			.gamepadForm(menuRows, backLabel: "Resume", active: menuNavigation.path.isEmpty) { showMenu = false }
@@ -741,8 +675,6 @@ private struct StatsOverlay: View {
 			Item(label: "", value: stats.height > 0 ? "\(stats.height)p" : "–"),
 			Item(label: "fps", value: "\(Int(stats.fps.rounded()))"),
 			Item(label: "Mbps", value: String(format: "%.1f", stats.bitrateMbps)),
-			Item(label: "ping", value: stats.pingMs > 0 ? String(format: "%.0f ms", stats.pingMs) : "–", warn: stats.pingMs > 40),
-			Item(label: "lost", value: "\(stats.packetsLost)", warn: stats.packetsLost > 0),
 		]
 		if settings.frameGeneration {
 			items.append(Item(label: "FG", value: stats.frameGenActive ? "+\(stats.generatedFPS)" : "off", warn: !stats.frameGenActive))
@@ -755,9 +687,9 @@ private struct StatsOverlay: View {
 		var items = [
 			Item(label: "", value: "\(stats.width)×\(stats.height) \(codec)"),
 			Item(label: "fps", value: "\(Int(stats.fps.rounded()))\(hz)"),
-			Item(label: "Mbps", value: String(format: "%.1f/%d", stats.bitrateMbps, settings.bitrateMbps)),
-			Item(label: "ping", value: stats.pingMs > 0 ? String(format: "%.0fms", stats.pingMs) : "–", warn: stats.pingMs > 40),
-			Item(label: "lost", value: "\(stats.packetsLost)/\(stats.totalPacketsLost)", warn: stats.packetsLost > 0),
+			Item(label: "Mbps", value: settings.bitrateMbps == StreamSettings.automaticBitrate
+				? String(format: "%.1f", stats.bitrateMbps)
+				: String(format: "%.1f/%d", stats.bitrateMbps, settings.bitrateMbps)),
 			Item(label: "dec", value: String(format: "%.1fms", stats.decodeMs)),
 		]
 		if settings.frameGeneration {

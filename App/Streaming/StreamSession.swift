@@ -1,5 +1,4 @@
 import Foundation
-import NVSTKit
 import Observation
 import UIKit
 
@@ -30,44 +29,96 @@ struct StreamStats: Equatable {
 	var frameGenStatus: String?
 }
 
-/// One play session: GeForce NOW launch (queue, rig setup) and then the NVST stream,
-/// with the renderer, audio and controller input around it.
+/// Decodes the connection's video straight onto the renderer, on the backend's video
+/// thread, and counts what went through for the stats.
+private final class VideoSink: @unchecked Sendable {
+	private let lock = NSLock()
+	private var decoder: VideoDecoder?
+	private weak var renderer: MetalRenderer?
+	private let tenBit: Bool
+	private(set) var frames = 0
+	private(set) var bytes = 0
+
+	init(renderer: MetalRenderer, tenBit: Bool) {
+		self.renderer = renderer
+		self.tenBit = tenBit
+	}
+
+	func start(codec: VideoCodec) {
+		let decoder = VideoDecoder(hevc: codec == .hevc, tenBit: tenBit && codec == .hevc)
+		decoder.onFrame = { [weak renderer] frame in renderer?.display(frame) }
+		lock.withLock { self.decoder = decoder }
+	}
+
+	func decode(_ data: UnsafeRawBufferPointer) -> Bool {
+		guard let base = data.bindMemory(to: UInt8.self).baseAddress, let decoder = lock.withLock({ decoder }) else {
+			return false
+		}
+		let ok = decoder.decode(base, count: data.count)
+		lock.withLock {
+			bytes += data.count
+			if ok { frames += 1 }
+		}
+		return ok
+	}
+
+	/// Frames decoded and bytes received so far, the last decode time and the picture size
+	func sample() -> (frames: Int, bytes: Int, decodeMs: Double, width: Int, height: Int) {
+		lock.withLock {
+			let size = decoder?.dimensions
+			return (frames, bytes, decoder?.lastDecodeMs ?? 0, Int(size?.width ?? 0), Int(size?.height ?? 0))
+		}
+	}
+
+	func stop() {
+		let old = lock.withLock { () -> VideoDecoder? in
+			defer { decoder = nil }
+			return decoder
+		}
+		old?.invalidate()
+	}
+}
+
+/// One play session on a PC: connect, then the stream with the renderer, audio and
+/// controller input around it.
 @MainActor @Observable
 final class StreamSession {
 	enum State: Equatable {
-		/// Waiting on GeForce NOW: see `launch.phase`
-		case launching
 		case connecting
 		case streaming
 		case ended(error: String?)
 	}
 
-	private(set) var state: State = .launching
+	private(set) var state: State = .connecting
 	private(set) var stats = StreamStats()
 	/// Folded or backgrounded: video isn't drawn and audio is muted, the stream stays up
 	private(set) var paused = false
 	private(set) var settings: StreamSettings
+	/// The stream ended because the PC no longer knows this phone
+	private(set) var needsPairing = false
 
-	let launch: GFNLaunch
-	var game: GFNGame { launch.game }
+	let host: PCHost
 
+	@ObservationIgnored private let backend: StreamBackend
 	@ObservationIgnored let renderer: MetalRenderer?
 	@ObservationIgnored let input = ControllerInput()
 	@ObservationIgnored private let audio = AudioOutput()
-	@ObservationIgnored private var stream: NVSTStream?
+	@ObservationIgnored private var stream: StreamConnection?
+	@ObservationIgnored private var video: VideoSink?
+	@ObservationIgnored private var connectTask: Task<Void, Never>?
 	/// The settings the stream was started with: its resolution, frame rate, bitrate, codec and HDR
 	@ObservationIgnored private(set) var streamSettings: StreamSettings
-	@ObservationIgnored private var physicalPad = NVSTGamepad()
+	@ObservationIgnored private var physicalPad = GamepadState()
 	@ObservationIgnored private var virtualPad = VirtualPadState()
 	@ObservationIgnored private var guideRelease: DispatchWorkItem?
 	@ObservationIgnored private var gyroStick = GyroStick()
 	/// Where gyro aiming is pushing the right stick, on top of the sticks themselves
 	@ObservationIgnored private var gyroStickPosition = SIMD2<Float>.zero
 	/// Mouse buttons the touchscreen is holding down, and the trackpad's sub-pixel leftovers
-	@ObservationIgnored private var heldMouseButtons: Set<NVSTMouseButton> = []
+	@ObservationIgnored private var heldMouseButtons: Set<MouseButton> = []
 	@ObservationIgnored private var mouseRemainder = CGVector.zero
-	@ObservationIgnored private var lastStats: NVSTStats?
-	@ObservationIgnored private var lastStatsTime: CFTimeInterval = 0
+	@ObservationIgnored private var statsTimer: Timer?
+	@ObservationIgnored private var lastSample: (frames: Int, bytes: Int, time: CFTimeInterval)?
 	@ObservationIgnored private var lastGenerated = 0
 	@ObservationIgnored private var lastSkipped = 0
 	@ObservationIgnored private var lastRepeated = 0
@@ -75,10 +126,11 @@ final class StreamSession {
 	/// Bumped on every teardown, so late callbacks from an old stream are ignored
 	@ObservationIgnored private var streamID = 0
 
-	init(accounts: GFNAccountStore, game: GFNGame, variant: GFNGameVariant, settings: StreamSettings) {
+	init(host: PCHost, backend: StreamBackend, settings: StreamSettings) {
+		self.host = host
+		self.backend = backend
 		self.settings = settings
 		self.streamSettings = settings
-		launch = GFNLaunch(accounts: accounts, game: game, variant: variant, request: Self.request(for: settings))
 		renderer = MetalRenderer()
 		let center = NotificationCenter.default
 		lifecycleObservers = [
@@ -86,15 +138,6 @@ final class StreamSession {
 				MainActor.assumeIsolated { self?.releaseInput() }
 			},
 		]
-		launch.onPhase = { [weak self] phase in
-			guard case .ready(let session) = phase else { return }
-			self?.connect(session)
-		}
-	}
-
-	private static func request(for settings: StreamSettings) -> GFNStreamRequest {
-		let size = settings.resolution.size
-		return GFNStreamRequest(width: size.width, height: size.height, fps: settings.fps, hdr: settings.hdr)
 	}
 
 	/// The view calls stop() when it goes away; this just drops the observers
@@ -104,45 +147,23 @@ final class StreamSession {
 
 	// MARK: - Lifecycle
 
-	/// Asks GeForce NOW for a rig, then connects once it's ready
+	/// Asks the PC for a stream and connects
 	func start() {
-		guard renderer != nil else {
+		guard let renderer else {
 			state = .ended(error: "Metal isn't available on this device.")
 			return
 		}
 		teardown()
-		state = .launching
-		launch.start()
-	}
-
-	/// Ends the stream and the GeForce NOW session. Safe to call more than once.
-	func stop() {
-		teardown()
-		if case .ended = state {} else { state = .ended(error: nil) }
-		let launch = launch
-		Task { await launch.cancel() }
-	}
-
-	/// From the "ended" screen: a fresh launch with the latest settings
-	func playAgain() {
-		streamSettings = settings
-		launch.setRequest(Self.request(for: settings))
-		start()
-	}
-
-	private func connect(_ session: GFNSession) {
-		guard stream == nil, let renderer else { return }
 		state = .connecting
-		streamID &+= 1
+		needsPairing = false
 		let id = streamID
 		let s = streamSettings
 		let size = s.resolution.size
-		let config = NVSTStreamConfig(
-			sessionID: session.id, rtspsEndpoints: session.rtspsEndpoints,
-			width: size.width, height: size.height, fps: s.fps,
-			maxBitrateKbps: s.bitrateMbps * 1000, codec: s.effectiveCodec == .h265 ? .hevc : .h264, hdr: s.hdr)
-		let stream = NVSTStream(config: config)
-		self.stream = stream
+		let screen = StreamResolution.screenSize
+		let config = StreamConfig(
+			width: size.width, height: size.height, fps: s.fps, maxBitrateKbps: s.bitrateCapKbps,
+			hevc: s.effectiveCodec == .h265, hdr: s.hdr, displayWidth: screen.width, displayHeight: screen.height,
+			microphone: false)
 
 		configureRenderer()
 		renderer.resetSmoothing()
@@ -150,14 +171,37 @@ final class StreamSession {
 		lastGenerated = renderer.generatedFrames
 		lastSkipped = renderer.skippedFrames
 		lastRepeated = renderer.repeatedFrames
-		lastStats = nil
+		lastSample = nil
 
-		stream.onFrame = { [weak renderer] frame in renderer?.display(frame) }
+		connectTask = Task { [weak self, backend, host] in
+			do {
+				let stream = try await backend.connect(host, config: config)
+				guard let self, self.streamID == id else {
+					stream.stop()
+					return
+				}
+				try await self.run(stream, id: id, renderer: renderer)
+			} catch {
+				guard let self, self.streamID == id else { return }
+				if error is CancellationError { return }
+				log.error("Stream start failed: \(error.localizedDescription, privacy: .public)")
+				consoleLog("Stream start failed: \(error.localizedDescription)")
+				self.teardown()
+				self.needsPairing = (error as? BackendError)?.needsPairing ?? false
+				self.state = .ended(error: error.localizedDescription)
+			}
+		}
+	}
+
+	private func run(_ stream: StreamConnection, id: Int, renderer: MetalRenderer) async throws {
+		self.stream = stream
+		let video = VideoSink(renderer: renderer, tenBit: streamSettings.hdr)
+		self.video = video
+
+		stream.onVideoStart = { codec, _, _ in video.start(codec: codec) }
+		stream.onVideoFrame = { data, _ in video.decode(data) }
 		let feedback = input.feedback
 		stream.onRumble = { low, high in feedback.rumble(low: low, high: high) }
-		stream.onStats = { [weak self] stats in
-			DispatchQueue.main.async { MainActor.assumeIsolated { self?.statsArrived(stats, id: id) } }
-		}
 		stream.onEnded = { [weak self] end in
 			DispatchQueue.main.async { MainActor.assumeIsolated { self?.streamEnded(end, id: id) } }
 		}
@@ -172,38 +216,47 @@ final class StreamSession {
 		input.onGyroAim = { [weak self] gyro, ts in self?.gyroAimed(gyro: gyro, timestamp: ts) }
 		input.start()
 
-		Task { [weak self] in
-			do {
-				try await stream.start()
-				guard let self, self.streamID == id else { return }
-				self.state = .streaming
-				self.audio.start(stream: stream)
-				self.audio.muted = self.paused
-				self.sendPad()
-				UIApplication.shared.isIdleTimerDisabled = true
-			} catch {
-				guard let self, self.streamID == id else { return }
-				log.error("Stream start failed: \(error.localizedDescription, privacy: .public)")
-				self.teardown()
-				self.state = .ended(error: error.localizedDescription)
-				await self.launch.end()
-			}
+		try await stream.start()
+		guard streamID == id else { return }
+		consoleLog("Streaming")
+		state = .streaming
+		audio.start(stream: stream)
+		audio.muted = paused
+		sendPad()
+		UIApplication.shared.isIdleTimerDisabled = true
+		statsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.sampleStats() }
 		}
 	}
 
-	private func streamEnded(_ end: NVSTEnd, id: Int) {
+	/// Ends the stream. Safe to call more than once.
+	func stop() {
+		teardown()
+		if case .ended = state {} else { state = .ended(error: nil) }
+	}
+
+	/// From the "ended" screen: a fresh stream with the latest settings
+	func playAgain() {
+		streamSettings = settings
+		start()
+	}
+
+	private func streamEnded(_ end: StreamEnd, id: Int) {
 		guard id == streamID else { return }
 		log.notice("Stream ended: \(String(describing: end), privacy: .public)")
+		consoleLog("Stream ended: \(end)")
 		teardown()
 		state = .ended(error: end.message)
-		let launch = launch
-		Task { await launch.end() }
 	}
 
 	private func teardown() {
 		streamID &+= 1
+		connectTask?.cancel()
+		connectTask = nil
+		statsTimer?.invalidate()
+		statsTimer = nil
 		input.stop()
-		physicalPad = NVSTGamepad()
+		physicalPad = GamepadState()
 		virtualPad = VirtualPadState()
 		gyroStickPosition = .zero
 		gyroStick.reset()
@@ -214,6 +267,8 @@ final class StreamSession {
 		audio.stop()
 		stream?.stop()
 		stream = nil
+		video?.stop()
+		video = nil
 		input.feedback.reset()
 		UIApplication.shared.isIdleTimerDisabled = false
 	}
@@ -274,7 +329,7 @@ final class StreamSession {
 	/// Lets go of every button and stick, so nothing stays held in the game
 	/// while we can't see the controller (iOS doesn't send controller input to background apps)
 	private func releaseInput() {
-		physicalPad = NVSTGamepad()
+		physicalPad = GamepadState()
 		gyroStickPosition = .zero
 		resetScreenInput()
 		sendPad()
@@ -305,12 +360,12 @@ final class StreamSession {
 	private func sendPad() {
 		guard let stream else { return }
 		guard !inputHeld else {
-			stream.send(NVSTGamepad())
+			stream.send(GamepadState())
 			return
 		}
 		var pad = physicalPad
 		pad.buttons |= virtualPad.buttons
-		if guideRelease != nil { pad.buttons |= NVSTGamepad.guide }
+		if guideRelease != nil { pad.buttons |= GamepadState.guide }
 		pad.leftTrigger = max(pad.leftTrigger, virtualPad.leftTrigger)
 		pad.rightTrigger = max(pad.rightTrigger, virtualPad.rightTrigger)
 		if let stick = virtualPad.leftStick { (pad.leftX, pad.leftY) = (stick.x, stick.y) }
@@ -344,7 +399,7 @@ final class StreamSession {
 		case .off: false
 		case .always: true
 		case .holdingLT: max(physicalPad.leftTrigger, virtualPad.leftTrigger) > 30
-		case .holdingRB: (physicalPad.buttons | virtualPad.buttons) & NVSTGamepad.rightShoulder != 0
+		case .holdingRB: (physicalPad.buttons | virtualPad.buttons) & GamepadState.rightShoulder != 0
 		}
 	}
 
@@ -415,25 +470,25 @@ final class StreamSession {
 
 	// MARK: - Stats
 
-	private func statsArrived(_ n: NVSTStats, id: Int) {
-		guard id == streamID else { return }
+	private func sampleStats() {
+		guard let video else { return }
 		let now = CACurrentMediaTime()
-		defer {
-			lastStats = n
-			lastStatsTime = now
-		}
-		guard let last = lastStats else { return }
-		let seconds = max(0.25, now - lastStatsTime)
+		let n = video.sample()
+		defer { lastSample = (n.frames, n.bytes, now) }
+		guard let last = lastSample else { return }
+		let seconds = max(0.25, now - last.time)
 		var s = StreamStats()
-		s.fps = Double(n.framesDecoded - last.framesDecoded) / seconds
-		s.bitrateMbps = Double(n.bytesReceived - last.bytesReceived) * 8 / seconds / 1_000_000
+		s.fps = Double(n.frames - last.frames) / seconds
+		s.bitrateMbps = Double(n.bytes - last.bytes) * 8 / seconds / 1_000_000
 		s.width = n.width
 		s.height = n.height
 		s.decodeMs = n.decodeMs
-		s.pingMs = n.pingMs
-		s.packetsLost = max(0, n.packetsLost - last.packetsLost)
-		s.totalPacketsLost = n.packetsLost
 		s.controller = input.controllerName
+		if Int(now) % 10 == 0 {
+			let line = "Stream \(s.width)x\(s.height) \(Int(s.fps)) fps \(String(format: "%.1f", s.bitrateMbps)) Mbps, decode \(String(format: "%.1f", s.decodeMs)) ms, audio buffered \(stream?.audioBuffered() ?? 0)"
+			log.info("\(line, privacy: .public)")
+			consoleLog(line)
+		}
 		if let renderer {
 			s.displayHz = renderer.displayHz
 			s.frameGenActive = settings.frameGeneration && renderer.frameGenRunning

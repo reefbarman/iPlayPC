@@ -153,6 +153,110 @@ void ihk_client_cancel_authorization(IHKClient *client);
 /// request is already running or the host is invalid.
 bool ihk_client_request_stream(IHKClient *client, const IHKHost *host, const IHKStreamRequest *request);
 
+// ------------------------------------------------------------------ session
+
+typedef enum {
+    IHK_VIDEO_H264 = 4,
+    IHK_VIDEO_HEVC = 5,
+} IHKVideoCodec;
+
+/// What we ask the host for. Zeros keep ihslib's defaults.
+typedef struct {
+    bool enable_audio;
+    bool enable_hevc;
+    int32_t max_bitrate_kbps;  // cap on the host's bitrate
+    int32_t quality;           // 0 Balanced, 1 Fast, 2 Beautiful
+    int32_t max_width;         // cap on the stream resolution; the host scales to fit
+    int32_t max_height;
+    int32_t refresh_num;       // the display's refresh rate as a fraction, e.g. 120/1
+    int32_t refresh_den;
+    int32_t display_width;     // the display's own resolution
+    int32_t display_height;
+} IHKSessionConfig;
+
+/// All optional. They fire on ihslib's session threads; never destroy the
+/// session from inside one.
+typedef struct {
+    void (*on_connected)(void *user);
+    /// The stream ended (host closed it, network lost, or ihk_session_stop).
+    void (*on_disconnected)(void *user);
+    void (*on_video_start)(void *user, IHKVideoCodec codec, uint32_t width, uint32_t height);
+    /// One Annex-B access unit (parameter sets arrive in band). Decode it
+    /// synchronously and return whether it worked; a failure asks the host for
+    /// a keyframe (at most once a second).
+    bool (*on_video_frame)(void *user, const uint8_t *data, size_t length, bool keyframe);
+    void (*on_video_stop)(void *user);
+    /// Audio is decoded inside the bridge; read it with ihk_session_read_audio.
+    void (*on_audio_start)(void *user, uint32_t channels, uint32_t sample_rate);
+    void (*on_audio_stop)(void *user);
+    /// The host changed its target frame rate or bitrate (bits/s). Informational.
+    void (*on_target_framerate)(void *user, uint32_t numerator, uint32_t denominator);
+    void (*on_target_bitrate)(void *user, int32_t bitrate);
+    void *user;
+} IHKSessionCallbacks;
+
+typedef struct IHKSession IHKSession;
+
+/// Builds a session from a stream grant. secret_key is the host's pairing key;
+/// device_id and device_name must match the client that requested the stream.
+/// config and callbacks are copied.
+IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, const uint8_t secret_key[32],
+                               const IHKStreamGrant *grant, const IHKSessionConfig *config,
+                               const IHKSessionCallbacks *callbacks);
+
+/// Connects and returns at once; the session runs on its own threads.
+bool ihk_session_start(IHKSession *session);
+
+/// Asks the host to end the stream. on_disconnected follows.
+void ihk_session_stop(IHKSession *session);
+
+/// Stops, waits for ihslib's threads and frees. No callbacks after this returns.
+/// Don't call it from a session callback.
+void ihk_session_destroy(IHKSession *session);
+
+/// Pulls up to frames of interleaved stereo float audio at 48 kHz. Returns how
+/// many it wrote; the rest is the caller's to fill with silence. Safe on the
+/// audio render thread.
+size_t ihk_session_read_audio(IHKSession *session, float *out, size_t frames);
+
+/// Stereo frames waiting to be read.
+size_t ihk_session_audio_buffered(IHKSession *session);
+
+// Input. All return false if the session isn't connected.
+
+typedef enum {
+    IHK_MOUSE_LEFT = 1,
+    IHK_MOUSE_RIGHT = 2,
+    IHK_MOUSE_MIDDLE = 16,
+    IHK_MOUSE_X1 = 32,
+    IHK_MOUSE_X2 = 64,
+} IHKMouseButton;
+
+typedef enum {
+    IHK_WHEEL_UP = 1,
+    IHK_WHEEL_DOWN = 2,
+    IHK_WHEEL_LEFT = 3,
+    IHK_WHEEL_RIGHT = 4,
+} IHKWheelDirection;
+
+/// Absolute position, 0...1 across the stream.
+bool ihk_session_mouse_position(IHKSession *session, float x, float y);
+bool ihk_session_mouse_move(IHKSession *session, int32_t dx, int32_t dy);
+bool ihk_session_mouse_button(IHKSession *session, IHKMouseButton button, bool down);
+bool ihk_session_mouse_wheel(IHKSession *session, IHKWheelDirection direction);
+/// USB HID usage scancode (what UIKeyboardHIDUsage gives you).
+bool ihk_session_key(IHKSession *session, uint32_t scancode, bool down);
+bool ihk_session_text(IHKSession *session, const char *utf8);
+
+typedef enum {
+    IHK_TOUCH_DOWN = 0,
+    IHK_TOUCH_MOVE = 1,
+    IHK_TOUCH_UP = 2,
+} IHKTouchPhase;
+
+/// Touchscreen finger at 0...1 across the stream.
+bool ihk_session_touch(IHKSession *session, uint64_t finger, IHKTouchPhase phase, float x, float y);
+
 #ifdef __cplusplus
 }
 #endif

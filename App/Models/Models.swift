@@ -4,22 +4,37 @@ import UIKit
 
 // MARK: - Stream settings
 
-/// What to ask GeForce NOW for. The membership tier decides what's actually streamed; this is a ceiling.
+/// The most to ask the PC for. Steam scales its picture to fit and may send less.
 enum StreamResolution: Int, Codable, CaseIterable, Identifiable {
 	case p720 = 720
 	case p1080 = 1080
 	case p1440 = 1440
 	case p2160 = 2160
+	/// This screen's own pixels
+	case native = 0
 
 	var id: Int { rawValue }
-	var label: String { self == .p2160 ? "4K" : "\(rawValue)p" }
+	var label: String {
+		switch self {
+		case .p2160: "4K"
+		case .native: "Native"
+		default: "\(rawValue)p"
+		}
+	}
 	var size: (width: Int, height: Int) {
 		switch self {
 		case .p720: (1280, 720)
 		case .p1080: (1920, 1080)
 		case .p1440: (2560, 1440)
 		case .p2160: (3840, 2160)
+		case .native: Self.screenSize
 		}
+	}
+
+	/// The screen's pixels, landscape
+	static var screenSize: (width: Int, height: Int) {
+		let size = UIScreen.main.nativeBounds.size
+		return (Int(max(size.width, size.height)), Int(min(size.width, size.height)))
 	}
 }
 
@@ -162,14 +177,18 @@ enum StatsMode: String, Codable, CaseIterable, Identifiable {
 
 struct StreamSettings: Codable, Equatable {
 	static let fpsOptions = [30, 60, 120]
-	/// NVIDIA's own client announces a 100 Mbps ceiling
 	static let maxBitrateMbps = 100
+	/// Automatic: the PC's own Remote Play bandwidth setting decides. Steam-Link-PS5 found
+	/// that any lower cap from the client only holds the stream back, so this is the default.
+	static let automaticBitrate = 0
 
 	var resolution: StreamResolution = .p1080
 	var fps: Int = 60
-	var bitrateMbps: Int = 50
+	/// 0 is Automatic
+	var bitrateMbps: Int = automaticBitrate
+	/// H.265 when the PC can send it, otherwise Steam falls back to H.264
 	var codec: VideoCodecChoice = .h265
-	/// HDR10. Needs H.265, an HDR screen, Ultimate and a game that supports it.
+	/// HDR10. Needs H.265, an HDR screen and a game that supports it.
 	var hdr: Bool = false
 	var displayMode: DisplayMode = .fit
 	var upscaling: UpscalingMode = .sharp
@@ -209,7 +228,12 @@ struct StreamSettings: Codable, Equatable {
 	/// HDR needs HEVC
 	var effectiveCodec: VideoCodecChoice { hdr ? .h265 : codec }
 
-	/// The video part, which a game can override
+	/// What to cap the PC's bitrate at, in kbit/s
+	var bitrateCapKbps: Int {
+		(bitrateMbps == Self.automaticBitrate ? Self.maxBitrateMbps : bitrateMbps) * 1000
+	}
+
+	/// The video part, which a PC can override
 	var video: VideoSettings {
 		get { VideoSettings(resolution: resolution, fps: fps, bitrateMbps: bitrateMbps, codec: codec, hdr: hdr) }
 		set {
@@ -221,7 +245,7 @@ struct StreamSettings: Codable, Equatable {
 		}
 	}
 
-	/// These settings with a game's own video settings on top
+	/// These settings with a PC's own video settings on top
 	func applying(_ custom: VideoSettings?) -> StreamSettings {
 		guard let custom else { return self }
 		var settings = self
@@ -241,7 +265,7 @@ struct StreamSettings: Codable, Equatable {
 		resolution = (try? c.decodeIfPresent(StreamResolution.self, forKey: .resolution)) ?? d.resolution
 		let savedFPS = try c.decodeIfPresent(Int.self, forKey: .fps) ?? d.fps
 		fps = Self.fpsOptions.contains(savedFPS) ? savedFPS : d.fps
-		bitrateMbps = min(Self.maxBitrateMbps, max(5, try c.decodeIfPresent(Int.self, forKey: .bitrateMbps) ?? d.bitrateMbps))
+		bitrateMbps = Self.clampBitrate(try c.decodeIfPresent(Int.self, forKey: .bitrateMbps) ?? d.bitrateMbps)
 		codec = (try? c.decodeIfPresent(VideoCodecChoice.self, forKey: .codec)) ?? d.codec
 		hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
 		displayMode = (try? c.decodeIfPresent(DisplayMode.self, forKey: .displayMode)) ?? d.displayMode
@@ -266,46 +290,38 @@ struct StreamSettings: Codable, Equatable {
 		highRefreshDisplay = try c.decodeIfPresent(Bool.self, forKey: .highRefreshDisplay) ?? d.highRefreshDisplay
 		frameGeneration = try c.decodeIfPresent(Bool.self, forKey: .frameGeneration) ?? d.frameGeneration
 	}
+
+	/// 0 (Automatic) or 5...100 Mbps
+	static func clampBitrate(_ value: Int) -> Int {
+		value <= automaticBitrate ? automaticBitrate : min(maxBitrateMbps, max(5, value))
+	}
 }
 
-/// Resolution, frame rate, bitrate, codec and HDR: what GeForce NOW fixes for a session
+/// Resolution, frame rate, bitrate, codec and HDR: fixed for a stream, and what a PC can override
 struct VideoSettings: Codable, Hashable {
 	var resolution: StreamResolution
 	var fps: Int
 	var bitrateMbps: Int
 	var codec: VideoCodecChoice
 	var hdr: Bool
-}
 
-/// Games with their own video settings, by game id
-@Observable
-final class GameSettingsStore {
-	private(set) var custom: [String: VideoSettings] {
-		didSet { save() }
+	init(resolution: StreamResolution, fps: Int, bitrateMbps: Int, codec: VideoCodecChoice, hdr: Bool) {
+		self.resolution = resolution
+		self.fps = fps
+		self.bitrateMbps = bitrateMbps
+		self.codec = codec
+		self.hdr = hdr
 	}
 
-	@ObservationIgnored private let key = "gameVideoSettings"
-
-	init() {
-		if let data = UserDefaults.standard.data(forKey: key),
-			let decoded = try? JSONDecoder().decode([String: VideoSettings].self, from: data)
-		{
-			custom = decoded
-		} else {
-			custom = [:]
-		}
-	}
-
-	func settings(for gameID: String) -> VideoSettings? { custom[gameID] }
-
-	func set(_ settings: VideoSettings?, for gameID: String) {
-		custom[gameID] = settings
-	}
-
-	private func save() {
-		if let data = try? JSONEncoder().encode(custom) {
-			UserDefaults.standard.set(data, forKey: key)
-		}
+	init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		let d = StreamSettings()
+		resolution = (try? c.decodeIfPresent(StreamResolution.self, forKey: .resolution)) ?? d.resolution
+		let savedFPS = try c.decodeIfPresent(Int.self, forKey: .fps) ?? d.fps
+		fps = StreamSettings.fpsOptions.contains(savedFPS) ? savedFPS : d.fps
+		bitrateMbps = StreamSettings.clampBitrate(try c.decodeIfPresent(Int.self, forKey: .bitrateMbps) ?? d.bitrateMbps)
+		codec = (try? c.decodeIfPresent(VideoCodecChoice.self, forKey: .codec)) ?? d.codec
+		hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
 	}
 }
 
