@@ -90,10 +90,18 @@ final class StreamSession {
 	enum State: Equatable {
 		case connecting
 		case streaming
+		/// The connection dropped: connecting again. 1...maxReconnectAttempts.
+		case reconnecting(attempt: Int)
 		case ended(error: String?)
 	}
 
+	static let maxReconnectAttempts = 3
+	/// Nothing from the PC for this long while streaming counts as a dropped connection
+	static let silenceTimeout = 15
+
 	private(set) var state: State = .connecting
+	/// The ended screen can offer Reconnect: the connection dropped, the PC didn't end the stream
+	private(set) var canReconnect = false
 	private(set) var stats = StreamStats()
 	/// Folded or backgrounded: video isn't drawn and audio is muted, the stream stays up
 	private(set) var paused = false
@@ -120,6 +128,10 @@ final class StreamSession {
 	@ObservationIgnored private var qualityPeak: Double = 0
 	@ObservationIgnored private var qualityLostAtStart = 0
 	@ObservationIgnored private var qualityLost = 0
+	@ObservationIgnored private var reconnectWork: DispatchWorkItem?
+	@ObservationIgnored private var reconnectAttempt = 0
+	/// Stats ticks in a row with nothing from the PC (the timer doesn't run while iOS suspends us)
+	@ObservationIgnored private var silentSeconds = 0
 
 	let host: PCHost
 
@@ -183,8 +195,10 @@ final class StreamSession {
 			return
 		}
 		teardown()
-		state = .connecting
+		// A reconnect keeps its own card up until the picture is back
+		if case .reconnecting = state {} else { state = .connecting }
 		needsPairing = false
+		silentSeconds = 0
 		let id = streamID
 		let s = streamSettings
 		let size = s.resolution.size
@@ -225,6 +239,11 @@ final class StreamSession {
 				consoleLog("Stream start failed: \(error.localizedDescription)")
 				self.teardown()
 				self.needsPairing = (error as? BackendError)?.needsPairing ?? false
+				if case .reconnecting = self.state, !self.needsPairing {
+					self.reconnectFailed(error.localizedDescription)
+					return
+				}
+				self.cancelReconnect()
 				self.state = .ended(error: error.localizedDescription)
 			}
 		}
@@ -268,6 +287,8 @@ final class StreamSession {
 		try await stream.start()
 		guard streamID == id else { return }
 		consoleLog("Streaming")
+		if reconnectAttempt > 0 { log.notice("Reconnected after \(self.reconnectAttempt) attempt(s)") }
+		reconnectAttempt = 0
 		state = .streaming
 		streamingSince = CACurrentMediaTime()
 		audio.start(stream: stream, mic: micAdvertised)
@@ -284,6 +305,8 @@ final class StreamSession {
 	/// to close the game.
 	func stop(quittingGame: Bool = false) {
 		teardown(quittingGame: quittingGame)
+		cancelReconnect()
+		canReconnect = false
 		if case .ended = state {} else { state = .ended(error: nil) }
 	}
 
@@ -295,6 +318,8 @@ final class StreamSession {
 
 	/// From the "ended" screen: a fresh stream with the latest settings
 	func playAgain() {
+		cancelReconnect()
+		canReconnect = false
 		streamSettings = settings
 		start()
 	}
@@ -303,8 +328,68 @@ final class StreamSession {
 		guard id == streamID else { return }
 		log.notice("Stream ended: \(String(describing: end), privacy: .public)")
 		consoleLog("Stream ended: \(end)")
+		let wasPlaying = state == .streaming
 		teardown()
-		state = .ended(error: end.message)
+		if end == .connectionLost, wasPlaying {
+			beginReconnect(reason: "ihslib gave up on the connection")
+		} else {
+			state = .ended(error: end.message)
+		}
+	}
+
+	// MARK: - Reconnect
+
+	/// From the ended screen: try again with the same video settings
+	func reconnect() {
+		guard case .ended = state, canReconnect else { return }
+		cancelReconnect()
+		canReconnect = false
+		reconnectAttempt = 1
+		state = .reconnecting(attempt: 1)
+		start()
+	}
+
+	private func beginReconnect(reason: String) {
+		cancelReconnect()
+		log.notice("Connection lost (\(reason, privacy: .public)), reconnecting")
+		consoleLog("Connection lost (\(reason)), reconnecting")
+		reconnectAttempt = 1
+		state = .reconnecting(attempt: 1)
+		scheduleReconnect(after: 1)
+	}
+
+	/// A reconnect attempt didn't work: wait longer and try again, or give up
+	private func reconnectFailed(_ message: String) {
+		guard case .reconnecting = state else { return }
+		log.notice("Reconnect attempt \(self.reconnectAttempt) failed: \(message, privacy: .public)")
+		guard reconnectAttempt < Self.maxReconnectAttempts else {
+			reconnectAttempt = 0
+			canReconnect = true
+			state = .ended(error: "Couldn't reconnect to \(host.name). Check your connection, then try again.")
+			return
+		}
+		reconnectAttempt += 1
+		state = .reconnecting(attempt: reconnectAttempt)
+		// 1 s, 2 s, 4 s
+		scheduleReconnect(after: pow(2, Double(reconnectAttempt - 1)))
+	}
+
+	private func scheduleReconnect(after delay: Double) {
+		let work = DispatchWorkItem { [weak self] in
+			MainActor.assumeIsolated {
+				guard let self, case .reconnecting = self.state else { return }
+				self.reconnectWork = nil
+				self.start()
+			}
+		}
+		reconnectWork = work
+		DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+	}
+
+	private func cancelReconnect() {
+		reconnectWork?.cancel()
+		reconnectWork = nil
+		reconnectAttempt = 0
 	}
 
 	// MARK: - Microphone
@@ -555,6 +640,16 @@ final class StreamSession {
 	// MARK: - Stats
 
 	private func sampleStats() {
+		// A connection that drops silently (out of Wi-Fi range) never ends on its own
+		if state == .streaming, let stream {
+			silentSeconds = stream.secondsSinceReceive() >= 2 ? silentSeconds + 1 : 0
+			if silentSeconds >= Self.silenceTimeout {
+				log.notice("Nothing from the PC for \(Self.silenceTimeout) s")
+				teardown()
+				beginReconnect(reason: "nothing from the PC for \(Self.silenceTimeout) s")
+				return
+			}
+		}
 		guard let video else { return }
 		let now = CACurrentMediaTime()
 		let n = video.sample()

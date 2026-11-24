@@ -60,6 +60,7 @@ Steam adjusts the bitrate itself while you play, up to **Maximum bitrate** (Auto
 
 - **Auto bitrate** (Settings, on by default) learns the maximum that works for each PC on each Wi-Fi network. After a stream that dropped video it asks for less next time, and after a long clean stream it tries a little more, never above your **Maximum bitrate**. Until a stream drops video (or you pick a bitrate with Check connection), your setting is used as is. On mobile data the setting is always used as is. **Forget learned bitrates** clears what it has learned.
 - **Check connection** (stream menu, under Connection) watches the next 20 seconds of the stream for lost video, then tells you how the connection is doing and can suggest a maximum. Tap **Use … Mbps next time** to use it from your next stream: with Auto bitrate on it's remembered for that PC on that network, otherwise it becomes your **Maximum bitrate** (the PC's own, if it has custom video settings). Play something busy while it checks, since the PC sends much less on menus and quiet scenes.
+- **Reconnecting:** if the connection drops mid-stream (including Wi-Fi just going quiet for 15 seconds), the app reconnects on its own, up to three tries a few seconds apart. If those don't work, the end screen offers **Reconnect**. When the PC ends the stream itself (you quit from Steam, or it goes to sleep) the app doesn't try to reconnect.
 
 ## Quitting
 
