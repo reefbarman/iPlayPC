@@ -96,6 +96,9 @@ final class StreamSession {
 	private(set) var settings: StreamSettings
 	/// The stream ended because the PC no longer knows this phone
 	private(set) var needsPairing = false
+	/// Streaming for a few seconds without a single frame. Usually a Mac host where Steam
+	/// isn't allowed to record the screen yet (the permission prompt can hide behind Steam).
+	private(set) var noPicture = false
 
 	let host: PCHost
 
@@ -119,6 +122,7 @@ final class StreamSession {
 	@ObservationIgnored private var mouseRemainder = CGVector.zero
 	@ObservationIgnored private var statsTimer: Timer?
 	@ObservationIgnored private var lastSample: (frames: Int, bytes: Int, time: CFTimeInterval)?
+	@ObservationIgnored private var streamingSince: CFTimeInterval = 0
 	@ObservationIgnored private var lastGenerated = 0
 	@ObservationIgnored private var lastSkipped = 0
 	@ObservationIgnored private var lastRepeated = 0
@@ -224,6 +228,7 @@ final class StreamSession {
 		guard streamID == id else { return }
 		consoleLog("Streaming")
 		state = .streaming
+		streamingSince = CACurrentMediaTime()
 		audio.start(stream: stream)
 		audio.muted = paused
 		sendPad()
@@ -259,6 +264,8 @@ final class StreamSession {
 		connectTask = nil
 		statsTimer?.invalidate()
 		statsTimer = nil
+		lastSample = nil
+		noPicture = false
 		input.stop()
 		physicalPad = GamepadState()
 		virtualPad = VirtualPadState()
@@ -478,6 +485,11 @@ final class StreamSession {
 		guard let video else { return }
 		let now = CACurrentMediaTime()
 		let n = video.sample()
+		let waiting = n.frames == 0 && now - streamingSince >= 5
+		if waiting != noPicture {
+			noPicture = waiting
+			if waiting { consoleLog("No video from the PC after 5 s") }
+		}
 		defer { lastSample = (n.frames, n.bytes, now) }
 		guard let last = lastSample else { return }
 		let seconds = max(0.25, now - last.time)

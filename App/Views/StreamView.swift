@@ -464,7 +464,19 @@ struct StreamView: View {
 				Button("Cancel") { dismiss() }.buttonStyle(.bordered)
 			}
 		case .streaming:
-			if session.settings.statsMode != .off && !(showSettingsHint && !showMenuButton) {
+			if session.noPicture {
+				statusCard {
+					Image(systemName: "eye.slash").font(.largeTitle).foregroundStyle(.secondary)
+					Text("No picture from \(host.name) yet").font(.headline)
+					Text("If it's a Mac, Steam needs permission to record the screen. Look for a prompt on the Mac (it can hide behind Steam), or allow Steam in System Settings › Privacy & Security › Screen & System Audio Recording.")
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+						.multilineTextAlignment(.center)
+						.frame(maxWidth: 420)
+					Button("Quit") { dismiss() }.buttonStyle(.bordered)
+				}
+				.transition(.opacity)
+			} else if session.settings.statsMode != .off && !(showSettingsHint && !showMenuButton) {
 				StatsOverlay(stats: session.stats, settings: session.settings, videoAspect: letterboxAspect(for: session))
 					.allowsHitTesting(false)
 					.transition(.opacity)
