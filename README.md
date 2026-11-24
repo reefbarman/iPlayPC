@@ -6,6 +6,20 @@ iPlayPC streams your PC's Steam library to your iPhone or iPad over your home ne
 
 **Work in progress.** It streams and plays, but there's no release yet.
 
+## Install
+
+iPlayPC isn't on the App Store. Once it's released, you install the `.ipa` from [Releases](https://github.com/reefbarman/iPlayPC/releases) yourself with a sideloading tool, signed with your own Apple ID. A free Apple ID is enough. Free-account apps expire after 7 days unless they're refreshed, which SideStore and AltStore do in the background.
+
+**SideStore or AltStore (recommended, gets updates):** add this source, then install iPlayPC from it:
+
+```
+https://raw.githubusercontent.com/reefbarman/iPlayPC/main/altstore-source.json
+```
+
+**Sideloadly or another signer:** download `iPlayPC.ipa` from the latest release and install it as you would any other IPA.
+
+**Developer account:** if you have a paid Apple Developer account, you can build from source (below) and the app lasts a year.
+
 ## Getting started
 
 1. On the PC, open Steam and turn on **Settings › Remote Play**.
@@ -49,7 +63,13 @@ The stream menu has two ways out:
 
 Both close the game the way you would at the PC (Alt+F4 on Windows and Linux, Cmd+Q on a Mac), so a game may ask before closing, and anything unsaved is lost. They only act when Steam reports a game is running, never on the desktop or in Big Picture.
 
-Not affiliated with or endorsed by Valve. "Steam" and "Steam Remote Play" are trademarks of Valve Corporation.
+## Settings
+
+Tap the gear on the PC list. Everything has a sensible default, so you only need to change what bothers you:
+
+- **Video:** resolution, frame rate, maximum bitrate, codec (H.264 or H.265) and HDR. Each PC can have its own in its PC settings.
+- **Display, Controller (including Gyro aiming), Virtual controls and Audio** each have their own page.
+- **About:** the version, a link to the exact source the build came from, and **Licences** for everything bundled into the app.
 
 ## Build from source
 
@@ -57,13 +77,22 @@ Needs a Mac with Xcode 16 or later and Homebrew.
 
 ```sh
 brew install cmake ninja xcodegen
-git clone --recursive <this repo>
+git clone --recursive https://github.com/reefbarman/iPlayPC.git
 cd iPlayPC
+git -C vendor/mbedtls submodule update --init --depth 1 framework  # mbedTLS's CMake needs it
 scripts/build-ihskit.sh                                 # -> Frameworks/IHSKit.xcframework
 cp Config/Local.xcconfig.example Config/Local.xcconfig  # set your team ID and a bundle ID
 xcodegen generate                                       # -> iPlayPC.xcodeproj
 open iPlayPC.xcodeproj
 ```
+
+`scripts/package-ipa.sh` builds an unsigned `build/iPlayPC.ipa` for sideloading. Pushing a `vX.Y.Z` tag runs the Release workflow, which builds the IPA, publishes a GitHub release and updates the sideload source. After bumping a submodule or ihslib, run `scripts/update-licenses.sh` and commit the result.
+
+### Layout
+
+- `App/`: the SwiftUI app, player, renderer and settings. Everything Steam-specific lives in `App/Backend/Steam`, behind the neutral types in `App/Backend`.
+- `IHSKit/`: builds ihslib with our patches (`IHSKit/patches`, listed in `IHSKit/PATCHES.md`) and a small C bridge into `IHSKit.xcframework`.
+- `vendor/`: ihslib (an untouched upstream copy), and Mbed TLS, Opus and protobuf-c as submodules.
 
 ## Credits and license
 
@@ -71,4 +100,6 @@ open iPlayPC.xcodeproj
 - [Steam-Link-PS5](https://github.com/jmelovich/Steam-Link-PS5) (GPL-3.0) by jmelovich found and fixed most of ihslib's stability problems. iPlayPC uses its patches.
 - Also bundled: [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache-2.0), [Opus](https://opus-codec.org) (BSD) and [protobuf-c](https://github.com/protobuf-c/protobuf-c) (BSD).
 
-iPlayPC is licensed under the [GNU Affero General Public License v3.0](LICENSE), like iPlay5.
+iPlayPC is licensed under the [GNU Affero General Public License v3.0](LICENSE), like iPlay5. The app shows every licence under **Settings › About › Licences**.
+
+Not affiliated with or endorsed by Valve. "Steam" and "Steam Remote Play" are trademarks of Valve Corporation.
