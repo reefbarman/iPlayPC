@@ -553,20 +553,47 @@ struct VideoSettingsSummary: View {
 	}
 }
 
-/// A PC's own video settings, for example 4K on the desktop and 1080p120 on the laptop
-struct HostVideoSettingsView: View {
+/// One PC: its name, address, MAC address for waking it, its own video settings
+/// (for example 4K on the desktop and 1080p120 on the laptop), and Forget.
+struct HostSettingsView: View {
 	let host: PCHost
 
 	@Environment(HostStore.self) private var hosts
 	@Environment(SettingsStore.self) private var store
 	@Environment(\.dismiss) private var dismiss
+	/// Text fields are saved when editing ends, not per keystroke
+	@State private var name = ""
+	@State private var address = ""
+	@State private var mac = ""
+	@State private var confirmingForget = false
 
 	private var saved: PCHost { hosts.host(id: host.id) ?? host }
 
 	private var rows: [GamepadRow] {
 		let toggle = GamepadRow.toggle("custom", custom)
-		guard saved.settings.video != nil else { return [toggle] }
-		return [toggle] + VideoSettingsSection.gamepadRows(settings)
+		let forget = GamepadRow(id: "forget", confirmLabel: "Forget", activate: { confirmingForget = true })
+		guard saved.settings.video != nil else { return [toggle, forget] }
+		return [toggle] + VideoSettingsSection.gamepadRows(settings) + [forget]
+	}
+
+	private var addressValid: Bool { LocalNetwork.normalizedIPv4(address) != nil }
+	private var macValid: Bool {
+		mac.trimmingCharacters(in: .whitespaces).isEmpty || LocalNetwork.normalizedMAC(mac) != nil
+	}
+
+	private func saveFields() {
+		guard hosts.host(id: host.id) != nil else { return }
+		var updated = saved
+		let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+		if !trimmedName.isEmpty { updated.name = trimmedName }
+		if let ip = LocalNetwork.normalizedIPv4(address) { updated.address = ip }
+		if mac.trimmingCharacters(in: .whitespaces).isEmpty {
+			updated.macAddress = nil
+		} else if let normalized = LocalNetwork.normalizedMAC(mac) {
+			updated.macAddress = normalized
+			mac = normalized
+		}
+		if updated != saved { hosts.update(updated) }
 	}
 
 	private var custom: Binding<Bool> {
@@ -595,6 +622,39 @@ struct HostVideoSettingsView: View {
 		NavigationStack {
 			Form {
 				Section {
+					LabeledContent("Name") {
+						TextField("PC", text: $name)
+							.multilineTextAlignment(.trailing)
+							.submitLabel(.done)
+							.onSubmit(saveFields)
+					}
+					LabeledContent("IP address") {
+						TextField("192.168.1.50", text: $address)
+							.multilineTextAlignment(.trailing)
+							.keyboardType(.numbersAndPunctuation)
+							.textInputAutocapitalization(.never)
+							.autocorrectionDisabled()
+							.submitLabel(.done)
+							.onSubmit(saveFields)
+							.foregroundStyle(addressValid ? .primary : Color.red)
+					}
+				} footer: {
+					Text("The address follows the PC automatically when it's found on your network.")
+				}
+				Section {
+					LabeledContent("MAC address") {
+						TextField("AA:BB:CC:DD:EE:FF", text: $mac)
+							.multilineTextAlignment(.trailing)
+							.textInputAutocapitalization(.characters)
+							.autocorrectionDisabled()
+							.submitLabel(.done)
+							.onSubmit(saveFields)
+							.foregroundStyle(macValid ? .primary : Color.red)
+					}
+				} footer: {
+					Text("Lets iPlayPC wake \(saved.name) from sleep. On Windows, run `ipconfig /all` and use the Physical Address of the network adapter it's connected with. On a Mac, it's in System Settings › Network › Details › Hardware.")
+				}
+				Section {
 					Toggle("Custom video settings", isOn: custom)
 						.gamepadRow("custom")
 				} footer: {
@@ -603,14 +663,42 @@ struct HostVideoSettingsView: View {
 				if saved.settings.video != nil {
 					VideoSettingsSection(settings: settings, customHostName: saved.name)
 				}
+				Section {
+					Button("Forget \(saved.name)", role: .destructive) { confirmingForget = true }
+						.gamepadRow("forget")
+				} footer: {
+					Text("Removes the PC and its pairing. To play it again you'll pair with a new PIN.")
+				}
 			}
 			.navigationTitle(saved.name)
 			.navigationBarTitleDisplayMode(.inline)
 			.toolbar {
-				ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+				ToolbarItem(placement: .confirmationAction) {
+					Button("Done") {
+						saveFields()
+						dismiss()
+					}
+				}
 			}
-			.gamepadForm(rows, backLabel: "Done") { dismiss() }
+			.gamepadForm(rows, backLabel: "Done", active: !confirmingForget) {
+				saveFields()
+				dismiss()
+			}
+			.confirmationDialog("Forget \(saved.name)?", isPresented: $confirmingForget, titleVisibility: .visible) {
+				Button("Forget", role: .destructive) {
+					hosts.remove(saved)
+					dismiss()
+				}
+			} message: {
+				Text("You'll need to pair again to play it.")
+			}
 		}
+		.onAppear {
+			name = saved.name
+			address = saved.address
+			mac = saved.macAddress ?? ""
+		}
+		.onDisappear(perform: saveFields)
 	}
 }
 

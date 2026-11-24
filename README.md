@@ -4,7 +4,16 @@
 
 iPlayPC streams your PC's Steam library to your iPhone or iPad over your home network. Your PC only needs Steam with Remote Play turned on. It's the sibling of [iPlay5](https://github.com/reefbarman/iPlay5) (PS5 Remote Play) and [iPlayNow](https://github.com/reefbarman/iPlayNow) (GeForce NOW), with the same player, Metal renderer, frame generation, gyro aiming and virtual controls.
 
-**Work in progress.** Nothing is playable yet.
+**Work in progress.** It streams and plays, but there's no release yet.
+
+## Getting started
+
+1. On the PC, open Steam and turn on **Settings › Remote Play**.
+2. Open iPlayPC. PCs on your network show up by themselves. If yours doesn't, tap **+** and enter its IP address.
+3. Tap **Pair** and type the PIN into Steam on the PC. You only do this once per PC.
+4. Tap **Play**. Steam opens Big Picture.
+
+Swipe left on a PC or long-press it for **PC settings**: rename it, change its IP address, add its MAC address (for waking it from sleep), give it its own video settings, or Forget it. With a controller, the d-pad moves through the list, A plays, Y opens PC settings and Menu opens Settings.
 
 ## Controllers
 

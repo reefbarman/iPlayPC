@@ -4,6 +4,20 @@ import Foundation
 /// The phone's own Wi-Fi/Ethernet subnet, for sweeping it with unicast
 /// discovery (iOS blocks broadcast without Apple's multicast entitlement).
 enum LocalNetwork {
+	/// "aa-bb-cc-dd-ee-ff", "AABBCCDDEEFF" and the like as "AA:BB:CC:DD:EE:FF", nil if it isn't a MAC address
+	static func normalizedMAC(_ text: String) -> String? {
+		let hex = text.uppercased().filter(\.isHexDigit)
+		let separators = text.filter { !$0.isHexDigit && !$0.isWhitespace }
+		guard hex.count == 12, separators.allSatisfy({ ":-.".contains($0) }) else { return nil }
+		var pairs: [String] = []
+		var rest = Substring(hex)
+		while !rest.isEmpty {
+			pairs.append(String(rest.prefix(2)))
+			rest = rest.dropFirst(2)
+		}
+		return pairs.joined(separator: ":")
+	}
+
 	/// Every address on the subnets the phone is on, skipping its own, the
 	/// network and broadcast addresses. Subnets bigger than a /22 are cut down
 	/// to the phone's own /24.

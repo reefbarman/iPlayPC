@@ -8,6 +8,20 @@ struct PairView: View {
 	@State private var pin: String?
 	@State private var error: String?
 	@State private var attempt = 0
+	@State private var gamepad = ListGamepadNavigator()
+
+	private var hints: [GamepadHint] {
+		guard let confirm = gamepad.confirmSymbol, let cancel = gamepad.cancelSymbol else { return [] }
+		var hints: [GamepadHint] = []
+		if error != nil { hints.append(GamepadHint(symbol: confirm, label: "Try again")) }
+		hints.append(GamepadHint(symbol: cancel, label: "Cancel"))
+		return hints
+	}
+
+	private func retry() {
+		error = nil
+		attempt += 1
+	}
 
 	var body: some View {
 		VStack(spacing: 28) {
@@ -21,11 +35,8 @@ struct PairView: View {
 				Text(error)
 					.multilineTextAlignment(.center)
 					.foregroundStyle(.secondary)
-				Button("Try again") {
-					self.error = nil
-					attempt += 1
-				}
-				.buttonStyle(.borderedProminent)
+				Button("Try again", action: retry)
+					.buttonStyle(.borderedProminent)
 			} else if let pin {
 				Text("Enter this PIN in Steam on your PC")
 					.foregroundStyle(.secondary)
@@ -37,12 +48,23 @@ struct PairView: View {
 			}
 			Spacer()
 			Button("Cancel") { dismiss() }
-				.padding(.bottom, 24)
+				.padding(.bottom, hints.isEmpty ? 24 : 8)
+			if !hints.isEmpty {
+				GamepadHintBar(hints: hints)
+					.padding(.bottom, 16)
+			}
 		}
 		.padding()
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.background(Color.black)
 		.task(id: attempt) { await pair() }
+		.onAppear {
+			gamepad.onCancel = { dismiss() }
+			gamepad.onConfirm = { if error != nil { retry() } }
+			gamepad.start()
+			gamepad.setActive(true)
+		}
+		.onDisappear { gamepad.stop() }
 	}
 
 	@MainActor
