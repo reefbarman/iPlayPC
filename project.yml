@@ -41,6 +41,8 @@ targets:
         CFBundleDisplayName: iPlayPC
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Git ref Settings › About › Source code opens (set by scripts/package-ipa.sh, main otherwise)
+        IPlayPCSourceRef: $(IPLAYPC_SOURCE_REF)
         LSRequiresIPhoneOS: true
         LSApplicationCategoryType: public.app-category.games
         UILaunchScreen: {}

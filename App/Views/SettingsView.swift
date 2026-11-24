@@ -758,6 +758,7 @@ struct SettingsView: View {
 		NavigationStack(path: $navigation.path) {
 			Form {
 				StreamSettingsForm(settings: settingsBinding)
+				AboutSection()
 			}
 			.navigationTitle("Settings")
 			.navigationBarTitleDisplayMode(.inline)

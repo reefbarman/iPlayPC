@@ -37,6 +37,8 @@
 	<true/>
 	<key>GCSupportsGameMode</key>
 	<true/>
+	<key>IPlayPCSourceRef</key>
+	<string>$(IPLAYPC_SOURCE_REF)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
 	<key>LSRequiresIPhoneOS</key>
