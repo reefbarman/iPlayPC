@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 import UIKit
@@ -93,6 +94,10 @@ final class StreamSession {
 	private(set) var stats = StreamStats()
 	/// Folded or backgrounded: video isn't drawn and audio is muted, the stream stays up
 	private(set) var paused = false
+	/// The mic is being captured for this stream (Microphone on when it connected)
+	private(set) var micActive = false
+	/// The player muted the mic. Kept across reconnects.
+	private(set) var micMuted = false
 	private(set) var settings: StreamSettings
 	/// The stream ended because the PC no longer knows this phone
 	private(set) var needsPairing = false
@@ -107,6 +112,8 @@ final class StreamSession {
 	@ObservationIgnored let input = ControllerInput()
 	@ObservationIgnored private let audio = AudioOutput()
 	@ObservationIgnored private var stream: StreamConnection?
+	/// Told the PC about the mic when connecting (it's only negotiated then)
+	@ObservationIgnored private var micAdvertised = false
 	/// A text field on the PC wants typing (main thread)
 	@ObservationIgnored var onShowKeyboard: (() -> Void)?
 	@ObservationIgnored private var video: VideoSink?
@@ -169,7 +176,8 @@ final class StreamSession {
 		let config = StreamConfig(
 			width: size.width, height: size.height, fps: s.fps, maxBitrateKbps: s.bitrateCapKbps,
 			hevc: s.effectiveCodec == .h265, hdr: s.hdr, displayWidth: screen.width, displayHeight: screen.height,
-			microphone: false)
+			microphone: settings.microphone && AVAudioApplication.shared.recordPermission == .granted)
+		micAdvertised = config.microphone
 
 		configureRenderer()
 		renderer.resetSmoothing()
@@ -239,8 +247,9 @@ final class StreamSession {
 		consoleLog("Streaming")
 		state = .streaming
 		streamingSince = CACurrentMediaTime()
-		audio.start(stream: stream)
+		audio.start(stream: stream, mic: micAdvertised)
 		audio.muted = paused
+		applyMicState()
 		sendPad()
 		UIApplication.shared.isIdleTimerDisabled = true
 		statsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -275,8 +284,22 @@ final class StreamSession {
 		state = .ended(error: end.message)
 	}
 
+	// MARK: - Microphone
+
+	func toggleMicMuted() {
+		micMuted.toggle()
+		applyMicState()
+	}
+
+	/// Mic audio goes to the PC while it's captured, not muted, and the stream is on screen
+	private func applyMicState() {
+		micActive = state == .streaming && audio.micEnabled
+		audio.micLive = micActive && !micMuted && !paused
+	}
+
 	private func teardown(quittingGame: Bool = false) {
 		streamID &+= 1
+		micActive = false
 		connectTask?.cancel()
 		connectTask = nil
 		statsTimer?.invalidate()
@@ -306,7 +329,13 @@ final class StreamSession {
 	/// Applies new settings. Resolution, frame rate, bitrate and codec are fixed for a session
 	/// (the stream menu doesn't offer them), so those keep coming from `streamSettings`.
 	func apply(_ new: StreamSettings) {
+		let micChanged = new.microphone != settings.microphone
 		settings = new
+		if micChanged, stream != nil, state == .streaming {
+			// Turning it on only works if the PC heard about the mic when connecting
+			audio.setMic(new.microphone && micAdvertised)
+			applyMicState()
+		}
 		input.gyroAimEnabled = new.gyroAim != .off
 		if new.gyroAim == .off, gyroStickPosition != .zero {
 			gyroStickPosition = .zero
@@ -346,6 +375,7 @@ final class StreamSession {
 		self.paused = paused
 		renderer?.setPaused(paused)
 		audio.muted = paused
+		applyMicState()
 		if paused {
 			releaseInput()
 		} else {

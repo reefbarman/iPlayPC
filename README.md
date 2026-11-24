@@ -32,6 +32,10 @@ Your controller shows up on the PC as a real gamepad, so Steam Input and games s
 
 Use the iPhone keyboard to type on your PC. Open or close it by tapping the screen with three fingers, with the keyboard button that appears when you tap the top-left corner, or with **Type with the keyboard** in the stream menu. What you type goes to whatever has focus on the PC, such as a search box in Big Picture.
 
+## Voice chat
+
+Turn on **Settings › Audio › Microphone** (off by default) to send your voice to the PC, where games, Discord and Steam hear it as the PC's microphone. It takes effect the next time you connect. While streaming, tap the mic button in the bottom-left corner, or use **Mute microphone** in the stream menu, to mute it. On the phone's speaker iPlayPC uses echo cancellation, so the game audio doesn't feed back into the mic.
+
 ## Quitting
 
 The stream menu has two ways out:

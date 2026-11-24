@@ -305,6 +305,9 @@ bool ihk_client_request_stream(IHKClient *c, const IHKHost *host, const IHKStrea
 #define AUDIO_MAX_FRAMES 4800
 #define AUDIO_TRIM_FRAMES 1920
 #define OPUS_MAX_FRAMES 5760  // 120 ms, the longest Opus packet
+#define MIC_RATE 48000        // what the app pushes
+#define MIC_MAX_FRAME 480     // 10 ms at 48 kHz
+#define MIC_MAX_CHANNELS 2
 
 struct IHKSession {
     IHS_Session *session;
@@ -326,6 +329,17 @@ struct IHKSession {
     size_t ring_count;  // frames buffered
 
     uint64_t last_lost_report_ms;
+
+    // Microphone: open while the host's mic channel is. The app pushes 48 kHz mono
+    // float; we cut it into 10 ms frames and encode them (or send raw float PCM).
+    pthread_mutex_t mic_lock;
+    bool mic_open;
+    bool mic_raw;
+    OpusEncoder *mic_opus;
+    uint32_t mic_channels;
+    size_t mic_frame;                 // samples per channel per 10 ms frame
+    float mic_buf[MIC_MAX_FRAME];     // mono, mic_fill of mic_frame filled
+    size_t mic_fill;
 };
 
 static uint64_t now_ms(void) {
@@ -510,6 +524,120 @@ static void input_show_keyboard(IHS_Session *session, void *context) {
     }
 }
 
+// ------------------------------------------------------------------ microphone
+
+static void mic_close_locked(IHKSession *s) {
+    if (s->mic_opus != NULL) {
+        opus_encoder_destroy(s->mic_opus);
+        s->mic_opus = NULL;
+    }
+    s->mic_open = false;
+    s->mic_fill = 0;
+}
+
+static int mic_start(IHS_Session *session, const IHS_StreamAudioConfig *config, void *context) {
+    IHKSession *s = context;
+    char line[128];
+    snprintf(line, sizeof(line), "Microphone: host opened it (codec %d, %u Hz, %u channels)", (int) config->codec,
+             (unsigned) config->frequency, (unsigned) config->channels);
+    ihk_log(IHK_LOG_INFO, line);
+
+    uint32_t channels = config->channels > 0 ? config->channels : 1;
+    // We only capture at 48 kHz; Steam's own clients send 48 kHz
+    if (config->frequency != MIC_RATE || channels > MIC_MAX_CHANNELS ||
+        (config->codec != IHS_StreamAudioCodecOpus && config->codec != IHS_StreamAudioCodecRaw)) {
+        ihk_log(IHK_LOG_WARN, "Microphone: unsupported format, not sending");
+        return -1;
+    }
+    pthread_mutex_lock(&s->mic_lock);
+    mic_close_locked(s);
+    s->mic_channels = channels;
+    s->mic_frame = MIC_RATE / 100;
+    s->mic_raw = config->codec == IHS_StreamAudioCodecRaw;
+    if (!s->mic_raw) {
+        int err = 0;
+        s->mic_opus = opus_encoder_create(MIC_RATE, (int) channels, OPUS_APPLICATION_VOIP, &err);
+        if (s->mic_opus == NULL || err != OPUS_OK) {
+            pthread_mutex_unlock(&s->mic_lock);
+            ihk_log(IHK_LOG_ERROR, "Microphone: Opus encoder failed");
+            return -1;
+        }
+        opus_encoder_ctl(s->mic_opus, OPUS_SET_BITRATE(32000));
+    }
+    s->mic_open = true;
+    pthread_mutex_unlock(&s->mic_lock);
+    if (s->cb.on_microphone != NULL) {
+        s->cb.on_microphone(s->cb.user, true);
+    }
+    return 0;
+}
+
+static void mic_stop(IHS_Session *session, void *context) {
+    IHKSession *s = context;
+    pthread_mutex_lock(&s->mic_lock);
+    bool was_open = s->mic_open;
+    mic_close_locked(s);
+    pthread_mutex_unlock(&s->mic_lock);
+    if (was_open) {
+        ihk_log(IHK_LOG_INFO, "Microphone: host closed it");
+        if (s->cb.on_microphone != NULL) {
+            s->cb.on_microphone(s->cb.user, false);
+        }
+    }
+}
+
+static const IHS_StreamMicrophoneCallbacks mic_callbacks = {
+    .start = mic_start,
+    .stop = mic_stop,
+};
+
+/// Encodes and sends the full frame in mic_buf. Called with mic_lock held.
+static void mic_send_frame_locked(IHKSession *s) {
+    float pcm[MIC_MAX_FRAME * MIC_MAX_CHANNELS];
+    for (size_t i = 0; i < s->mic_frame; i++) {
+        for (uint32_t c = 0; c < s->mic_channels; c++) {
+            pcm[i * s->mic_channels + c] = s->mic_buf[i];
+        }
+    }
+    if (s->mic_raw) {
+        IHS_SessionSendMicrophoneData(s->session, (const uint8_t *) pcm,
+                                      s->mic_frame * s->mic_channels * sizeof(float));
+        return;
+    }
+    uint8_t packet[1500];
+    opus_int32 len = opus_encode_float(s->mic_opus, pcm, (int) s->mic_frame, packet, sizeof(packet));
+    if (len > 0) {
+        IHS_SessionSendMicrophoneData(s->session, packet, (size_t) len);
+    }
+}
+
+bool ihk_session_push_mic(IHKSession *s, const float *samples, size_t frames) {
+    if (s == NULL || samples == NULL || !s->started || atomic_load(&s->disconnecting)) {
+        return false;
+    }
+    pthread_mutex_lock(&s->mic_lock);
+    if (!s->mic_open) {
+        pthread_mutex_unlock(&s->mic_lock);
+        return false;
+    }
+    while (frames > 0) {
+        size_t take = s->mic_frame - s->mic_fill;
+        if (take > frames) {
+            take = frames;
+        }
+        memcpy(s->mic_buf + s->mic_fill, samples, take * sizeof(float));
+        s->mic_fill += take;
+        samples += take;
+        frames -= take;
+        if (s->mic_fill == s->mic_frame) {
+            mic_send_frame_locked(s);
+            s->mic_fill = 0;
+        }
+    }
+    pthread_mutex_unlock(&s->mic_lock);
+    return true;
+}
+
 static const IHS_StreamSessionCallbacks session_callbacks = {
     .configuring = session_configuring,
     .connected = session_connected,
@@ -547,6 +675,7 @@ IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, cons
         return NULL;
     }
     pthread_mutex_init(&s->audio_lock, NULL);
+    pthread_mutex_init(&s->mic_lock, NULL);
     if (config != NULL) {
         s->config = *config;
     }
@@ -567,6 +696,7 @@ IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, cons
     memset(&info, 0, sizeof(info));
     if (!address_from_string(grant->address, &info.address.ip)) {
         ihk_log(IHK_LOG_ERROR, "Session: bad address");
+        pthread_mutex_destroy(&s->mic_lock);
         pthread_mutex_destroy(&s->audio_lock);
         free(s);
         return NULL;
@@ -578,6 +708,7 @@ IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, cons
 
     s->session = IHS_SessionCreate(&client_config, &info);
     if (s->session == NULL) {
+        pthread_mutex_destroy(&s->mic_lock);
         pthread_mutex_destroy(&s->audio_lock);
         free(s);
         return NULL;
@@ -587,6 +718,10 @@ IHKSession *ihk_session_create(uint64_t device_id, const char *device_name, cons
     IHS_SessionSetVideoCallbacks(s->session, &video_callbacks, s);
     IHS_SessionSetAudioCallbacks(s->session, &audio_callbacks, s);
     IHS_SessionSetInputCallbacks(s->session, &input_callbacks, s);
+    if (s->config.enable_microphone) {
+        // Advertises the mic to the host during negotiation
+        IHS_SessionSetMicrophoneCallbacks(s->session, &mic_callbacks, s);
+    }
     s->pad = ihk_pad_create(s->session, &s->cb);
     return s;
 }
@@ -659,6 +794,10 @@ void ihk_session_destroy(IHKSession *s) {
     if (s->opus != NULL) {
         opus_decoder_destroy(s->opus);
     }
+    pthread_mutex_lock(&s->mic_lock);
+    mic_close_locked(s);
+    pthread_mutex_unlock(&s->mic_lock);
+    pthread_mutex_destroy(&s->mic_lock);
     pthread_mutex_destroy(&s->audio_lock);
     free(s);
 }

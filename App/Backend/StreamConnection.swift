@@ -97,6 +97,8 @@ protocol StreamConnection: AnyObject {
 	var onLightbar: ((_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Void)? { get set }
 	/// A text field on the PC wants typing
 	var onShowKeyboard: (() -> Void)? { get set }
+	/// The PC started (true) or stopped (false) listening to the microphone. Any thread.
+	var onMicrophone: ((Bool) -> Void)? { get set }
 	/// At most once; not called after `stop()`
 	var onEnded: ((StreamEnd) -> Void)? { get set }
 
@@ -113,6 +115,9 @@ protocol StreamConnection: AnyObject {
 	/// 48 kHz stereo interleaved Float32. Safe on the audio render thread.
 	/// Returns frames copied; the caller zero-fills the rest.
 	func readAudio(_ out: UnsafeMutablePointer<Float>, frames: Int) -> Int
+	/// Microphone audio, 48 kHz mono Float32, from the capture thread. Dropped while the PC
+	/// isn't listening. Needs `StreamConfig.microphone` when connecting.
+	func pushMicrophone(_ samples: UnsafePointer<Float>, frames: Int)
 
 	/// Ask for a clean picture, e.g. after frames were dropped while paused
 	func requestKeyframe()

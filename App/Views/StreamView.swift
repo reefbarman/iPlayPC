@@ -172,6 +172,10 @@ struct StreamView: View {
 				frameGenButton(compact: showsVirtualControls)
 			}
 
+			if let session, session.micActive {
+				micButton(session)
+			}
+
 			if showHeatWarning {
 				heatWarning.transition(.opacity)
 			}
@@ -435,6 +439,31 @@ struct StreamView: View {
 		.ignoresSafeArea()
 	}
 
+	// MARK: - Microphone (bottom left)
+
+	/// Mutes and unmutes the mic
+	private func micButton(_ session: StreamSession) -> some View {
+		Button {
+			session.toggleMicMuted()
+		} label: {
+			Image(systemName: session.micMuted ? "mic.slash.fill" : "mic.fill")
+				.font(.title3)
+				.foregroundStyle(session.micMuted ? .red : .white)
+				.frame(width: 24, height: 24)
+				.padding(.horizontal, 10)
+				.padding(.vertical, 6)
+				.background(.black.opacity(0.45), in: Capsule())
+				.opacity(session.micMuted ? 1 : 0.6)
+				.padding(.bottom, 12)
+				.padding(.leading, 16)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.accessibilityLabel(session.micMuted ? "Unmute microphone" : "Mute microphone")
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+		.ignoresSafeArea()
+	}
+
 	// MARK: - Heat warning
 
 	private func flashHeatWarning() {
@@ -571,9 +600,14 @@ struct StreamView: View {
 	}
 
 	private var menuRows: [GamepadRow] {
-		[
+		let mic: [GamepadRow] = session?.micActive == true
+			? [GamepadRow(id: "mic", confirmLabel: session?.micMuted == true ? "Unmute" : "Mute",
+				activate: { session?.toggleMicMuted() })]
+			: []
+		return [
 			GamepadRow(id: "resume", confirmLabel: "Resume", activate: { showMenu = false }),
 			GamepadRow(id: "keyboard", confirmLabel: "Open", activate: openKeyboardFromMenu),
+		] + mic + [
 			GamepadRow(id: "quitGame", confirmLabel: quitGameArmed ? "Confirm" : "Quit game", activate: {
 				if quitGameArmed { quitGame() } else { quitGameArmed = true }
 			}),
@@ -592,6 +626,12 @@ struct StreamView: View {
 						.gamepadRow("resume")
 					Button("Type with the keyboard", action: openKeyboardFromMenu)
 						.gamepadRow("keyboard")
+					if let session, session.micActive {
+						Button(session.micMuted ? "Unmute microphone" : "Mute microphone") {
+							session.toggleMicMuted()
+						}
+						.gamepadRow("mic")
+					}
 					Button(quitGameLabel, role: .destructive, action: quitGame)
 						.gamepadRow("quitGame")
 						.disabled(noGameToQuit)

@@ -172,6 +172,9 @@ typedef struct {
     int32_t refresh_den;
     int32_t display_width;     // the display's own resolution
     int32_t display_height;
+    /// Tell the host this client has a microphone (only negotiated at connect).
+    /// The host then opens a mic channel; push audio with ihk_session_push_mic.
+    bool enable_microphone;
 } IHKSessionConfig;
 
 /// All optional. They fire on ihslib's session threads; never destroy the
@@ -199,6 +202,8 @@ typedef struct {
     void (*on_lightbar)(void *user, uint8_t r, uint8_t g, uint8_t b);
     /// A text field on the host wants typing: bring up the phone's keyboard.
     void (*on_show_keyboard)(void *user);
+    /// The host opened (true) or closed (false) its microphone channel.
+    void (*on_microphone)(void *user, bool active);
     void *user;
 } IHKSessionCallbacks;
 
@@ -238,6 +243,11 @@ size_t ihk_session_read_audio(IHKSession *session, float *out, size_t frames);
 
 /// Stereo frames waiting to be read.
 size_t ihk_session_audio_buffered(IHKSession *session);
+
+/// Microphone audio: 48 kHz mono float, any number of frames, any thread. The
+/// bridge cuts it into 10 ms frames, encodes them with Opus and sends them while
+/// the host's mic channel is open. Returns false (and drops the audio) otherwise.
+bool ihk_session_push_mic(IHKSession *session, const float *samples, size_t frames);
 
 // Input. All return false if the session isn't connected.
 

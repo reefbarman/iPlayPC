@@ -15,6 +15,7 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	var onRumble: ((Float, Float) -> Void)?
 	var onLightbar: ((UInt8, UInt8, UInt8) -> Void)?
 	var onShowKeyboard: (() -> Void)?
+	var onMicrophone: ((Bool) -> Void)?
 	var onEnded: ((StreamEnd) -> Void)?
 
 	private struct State {
@@ -164,6 +165,7 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	private func makeSession() -> OpaquePointer? {
 		var sessionConfig = IHKSessionConfig()
 		sessionConfig.enable_audio = true
+		sessionConfig.enable_microphone = config.microphone
 		sessionConfig.enable_hevc = config.hevc
 		sessionConfig.max_bitrate_kbps = Int32(clamping: config.maxBitrateKbps)
 		sessionConfig.quality = 0
@@ -212,6 +214,10 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		}
 		callbacks.on_show_keyboard = { user in
 			SteamConnection.from(user)?.onShowKeyboard?()
+		}
+		callbacks.on_microphone = { user, active in
+			consoleLog("PC microphone \(active ? "open" : "closed")")
+			SteamConnection.from(user)?.onMicrophone?(active)
 		}
 
 		var grant = grant
@@ -270,6 +276,11 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	func readAudio(_ out: UnsafeMutablePointer<Float>, frames: Int) -> Int {
 		guard let session else { return 0 }
 		return ihk_session_read_audio(session, out, frames)
+	}
+
+	func pushMicrophone(_ samples: UnsafePointer<Float>, frames: Int) {
+		guard let session else { return }
+		_ = ihk_session_push_mic(session, samples, frames)
 	}
 
 	// MARK: - Input

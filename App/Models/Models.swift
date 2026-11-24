@@ -211,6 +211,8 @@ struct StreamSettings: Codable, Equatable {
 	var rumble: Bool = true
 	/// How strongly rumble plays on the phone (virtual controls, or a controller without motors)
 	var phoneHaptics: PhoneHaptics = .full
+	/// Send the phone's mic to the PC for voice chat
+	var microphone: Bool = false
 	var virtualControls: VirtualControlsMode = .auto
 	var controlsSize: ControlsSize = .medium
 	/// 0.2...1, multiplies the virtual controls' own transparency
@@ -282,6 +284,7 @@ struct StreamSettings: Codable, Equatable {
 		gyroAimPerAxisDeadzone = try c.decodeIfPresent(Bool.self, forKey: .gyroAimPerAxisDeadzone) ?? d.gyroAimPerAxisDeadzone
 		rumble = try c.decodeIfPresent(Bool.self, forKey: .rumble) ?? d.rumble
 		phoneHaptics = (try? c.decodeIfPresent(PhoneHaptics.self, forKey: .phoneHaptics)) ?? d.phoneHaptics
+		microphone = try c.decodeIfPresent(Bool.self, forKey: .microphone) ?? d.microphone
 		virtualControls = (try? c.decodeIfPresent(VirtualControlsMode.self, forKey: .virtualControls)) ?? d.virtualControls
 		controlsSize = (try? c.decodeIfPresent(ControlsSize.self, forKey: .controlsSize)) ?? d.controlsSize
 		controlsOpacity = min(1, max(0.2, try c.decodeIfPresent(Double.self, forKey: .controlsOpacity) ?? d.controlsOpacity))
