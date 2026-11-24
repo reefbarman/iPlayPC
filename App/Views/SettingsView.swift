@@ -652,7 +652,7 @@ struct HostSettingsView: View {
 							.foregroundStyle(macValid ? .primary : Color.red)
 					}
 				} footer: {
-					Text("Lets iPlayPC wake \(saved.name) from sleep. On Windows, run `ipconfig /all` and use the Physical Address of the network adapter it's connected with. On a Mac, it's in System Settings › Network › Details › Hardware.")
+					Text("Lets iPlayPC wake \(saved.name) from sleep. On Windows, run `ipconfig /all` and use the Physical Address of the network adapter it's connected with, and turn on Wake on LAN for that adapter. On a Mac, it's in System Settings › Network › Details › Hardware, and Wake for network access needs to be on in System Settings › Energy.")
 				}
 				Section {
 					Toggle("Custom video settings", isOn: custom)

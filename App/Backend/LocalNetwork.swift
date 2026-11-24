@@ -52,6 +52,28 @@ enum LocalNetwork {
 		return result
 	}
 
+	/// The broadcast address of the phone's subnet that `address` is on, nil if it's on none of them
+	static func broadcastAddress(for address: String) -> String? {
+		var target = in_addr()
+		guard inet_pton(AF_INET, address, &target) == 1 else { return nil }
+		let host = UInt32(bigEndian: target.s_addr)
+		var ifs: UnsafeMutablePointer<ifaddrs>?
+		guard getifaddrs(&ifs) == 0, let first = ifs else { return nil }
+		defer { freeifaddrs(ifs) }
+		for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+			let entry = pointer.pointee
+			guard let addr = entry.ifa_addr, let netmask = entry.ifa_netmask,
+				addr.pointee.sa_family == UInt8(AF_INET)
+			else { continue }
+			let flags = Int32(entry.ifa_flags)
+			guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else { continue }
+			let ip = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+			let mask = netmask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+			if ip & mask == host & mask { return format(ip & mask | ~mask) }
+		}
+		return nil
+	}
+
 	static func format(_ ip: UInt32) -> String {
 		"\(ip >> 24 & 0xFF).\(ip >> 16 & 0xFF).\(ip >> 8 & 0xFF).\(ip & 0xFF)"
 	}

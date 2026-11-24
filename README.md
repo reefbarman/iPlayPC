@@ -15,6 +15,10 @@ iPlayPC streams your PC's Steam library to your iPhone or iPad over your home ne
 
 Swipe left on a PC or long-press it for **PC settings**: rename it, change its IP address, add its MAC address (for waking it from sleep), give it its own video settings, or Forget it. With a controller, the d-pad moves through the list, A plays, Y opens PC settings and Menu opens Settings.
 
+### Waking a sleeping PC
+
+Add the PC's MAC address in its PC settings, and a sleeping PC shows **Wake** instead of Play. iPlayPC keeps trying for a minute and starts playing as soon as the PC answers. The PC needs Wake on LAN turned on (Windows: in the network adapter's settings and often the BIOS; Mac: **Wake for network access**). iPhones can't send network-wide wake packets, so iPlayPC sends it straight to the PC's last IP address. That works on most home networks, ideally with the PC wired and given a reserved IP on the router.
+
 ## Controllers
 
 Your controller shows up on the PC as a real gamepad, so Steam Input and games show the right buttons:

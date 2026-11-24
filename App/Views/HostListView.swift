@@ -11,6 +11,9 @@ struct HostListView: View {
 	@State private var showingSettings = false
 	/// The row a controller has selected: a saved PC's id or a found PC's id
 	@State private var selection: String?
+	/// The PC being woken, and the task resending the magic packet until it answers
+	@State private var waking: String?
+	@State private var wakeTask: Task<Void, Never>?
 
 	/// The controller only drives the list when nothing is covering it
 	private var gamepadActive: Bool {
@@ -120,16 +123,27 @@ struct HostListView: View {
 				playing = store.hosts.first { $0.isPaired }
 			}
 		}
-		.onDisappear { gamepad.stop() }
+		.onDisappear {
+			gamepad.stop()
+			stopWaking()
+		}
 		.onChange(of: gamepadActive) { _, active in gamepad.setActive(active) }
 		.onChange(of: rowIDs) { _, _ in ensureSelection() }
+		.onChange(of: store.found) { _, _ in
+			// Play as soon as the PC we woke answers
+			guard let id = waking, let host = store.host(id: id), store.status(of: host) != .offline else { return }
+			stopWaking()
+			open(host)
+		}
 	}
 
 	private func savedRow(_ host: PCHost) -> some View {
 		let selected = isSelected(host.id)
 		return HostRow(
 			name: host.name, address: host.address, status: store.status(of: host), paired: host.isPaired,
-			confirmSymbol: selected ? gamepad.confirmSymbol : nil
+			canWake: host.macAddress != nil, waking: waking == host.id,
+			confirmSymbol: selected ? gamepad.confirmSymbol : nil,
+			wake: { wake(host) }
 		) {
 			open(host)
 		}
@@ -150,6 +164,41 @@ struct HostListView: View {
 		if host.isPaired { playing = host } else { pairing = host }
 	}
 
+	/// What tapping the PC (or A) does: wake it when it's asleep and we can, otherwise play or pair
+	private func activate(_ host: PCHost) {
+		if waking == host.id { return }
+		if store.status(of: host) == .offline, host.macAddress != nil {
+			wake(host)
+		} else {
+			open(host)
+		}
+	}
+
+	// MARK: - Wake-on-LAN
+
+	/// Sends magic packets every few seconds for up to a minute, while discovery keeps
+	/// asking the PC's address. The PC plays (or pairs) as soon as it answers.
+	private func wake(_ host: PCHost) {
+		guard let mac = host.macAddress else { return }
+		stopWaking()
+		waking = host.id
+		let address = host.address
+		wakeTask = Task { @MainActor in
+			let deadline = Date.now.addingTimeInterval(60)
+			while !Task.isCancelled, Date.now < deadline {
+				WakeOnLAN.wake(mac: mac, address: address)
+				try? await Task.sleep(for: .seconds(3))
+			}
+			if !Task.isCancelled, waking == host.id { waking = nil }
+		}
+	}
+
+	private func stopWaking() {
+		wakeTask?.cancel()
+		wakeTask = nil
+		waking = nil
+	}
+
 	// MARK: - Controller navigation
 
 	private func isSelected(_ id: String) -> Bool {
@@ -163,13 +212,17 @@ struct HostListView: View {
 	private var hints: [GamepadHint] {
 		guard let confirm = gamepad.confirmSymbol, !rowIDs.isEmpty else { return [] }
 		var hints = [GamepadHint(symbol: "dpad", label: "Move")]
-		let label: String
+		var label: String? = "Pair"
 		if let host = selectedHost {
-			label = host.isPaired ? "Play" : "Pair"
-		} else {
-			label = "Pair"
+			if waking == host.id {
+				label = nil
+			} else if store.status(of: host) == .offline, host.macAddress != nil {
+				label = "Wake"
+			} else {
+				label = host.isPaired ? "Play" : "Pair"
+			}
 		}
-		hints.append(GamepadHint(symbol: confirm, label: label))
+		if let label { hints.append(GamepadHint(symbol: confirm, label: label)) }
 		if selectedHost != nil, let top = gamepad.topSymbol {
 			hints.append(GamepadHint(symbol: top, label: "PC settings"))
 		}
@@ -199,7 +252,7 @@ struct HostListView: View {
 	private func activateSelection() {
 		guard let id = selection else { return }
 		if let host = store.host(id: id) {
-			open(host)
+			activate(host)
 		} else if let found = store.newHosts.first(where: { $0.id == id }) {
 			pairing = PCHost(found)
 		}
@@ -215,9 +268,15 @@ private struct HostRow: View {
 	let address: String
 	let status: HostStatus
 	let paired: Bool
+	/// Has a MAC address, so it can be woken when it's not found
+	var canWake = false
+	var waking = false
 	/// SF Symbol for the controller's confirm button when this row is selected
 	let confirmSymbol: String?
+	var wake: () -> Void = {}
 	let action: () -> Void
+
+	private var offersWake: Bool { canWake && status == .offline }
 
 	var body: some View {
 		HStack(spacing: 14) {
@@ -230,7 +289,12 @@ private struct HostRow: View {
 				statusLabel
 			}
 			Spacer()
-			if paired {
+			if waking {
+				ProgressView()
+			} else if offersWake {
+				Button(action: wake) { buttonLabel("Wake") }
+					.buttonStyle(.bordered)
+			} else if paired {
 				Button(action: action) { buttonLabel("Play") }
 					.buttonStyle(.borderedProminent)
 			} else {
@@ -240,7 +304,10 @@ private struct HostRow: View {
 		}
 		.padding(.vertical, 6)
 		.contentShape(Rectangle())
-		.onTapGesture(perform: action)
+		.onTapGesture {
+			if waking { return }
+			if offersWake { wake() } else { action() }
+		}
 	}
 
 	@ViewBuilder private func buttonLabel(_ title: String) -> some View {
@@ -263,7 +330,13 @@ private struct HostRow: View {
 		case .busy:
 			Label("In use", systemImage: "circle.fill").font(.caption).foregroundStyle(.orange)
 		case .offline:
-			Label("Not found", systemImage: "circle").font(.caption).foregroundStyle(.secondary)
+			if waking {
+				Label("Waking…", systemImage: "moon.zzz").font(.caption).foregroundStyle(.orange)
+			} else if canWake {
+				Label("Asleep or off", systemImage: "moon").font(.caption).foregroundStyle(.secondary)
+			} else {
+				Label("Not found", systemImage: "circle").font(.caption).foregroundStyle(.secondary)
+			}
 		}
 	}
 }
