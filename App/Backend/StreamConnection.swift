@@ -100,8 +100,11 @@ protocol StreamConnection: AnyObject {
 
 	/// Connects. Throws BackendError with a player-facing reason.
 	func start() async throws
-	/// Ends the stream. Idempotent.
-	func stop()
+	/// Ends the stream. Idempotent. quittingGame first closes the game on the PC.
+	func stop(quittingGame: Bool)
+	/// Closes the game in front on the PC and keeps streaming. Returns false if
+	/// no game is running.
+	func quitGame() -> Bool
 
 	/// 48 kHz stereo frames waiting to be read
 	func audioBuffered() -> Int
@@ -130,4 +133,8 @@ protocol StreamConnection: AnyObject {
 	func sendKey(virtualKey: UInt16)
 	/// Types text as Unicode
 	func sendText(_ text: String)
+}
+
+extension StreamConnection {
+	func stop() { stop(quittingGame: false) }
 }

@@ -7,11 +7,14 @@
 
 #include <ihslib.h>
 
+#include "session/session_pri.h"  // state.activity (patch 0101)
+
 #include <opus.h>
 
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -599,6 +602,40 @@ void ihk_session_stop(IHKSession *s) {
         return;
     }
     session_disconnect_once(s);
+}
+
+bool ihk_session_game_running(IHKSession *s) {
+    return s != NULL && s->started && s->session->state.activity == k_EStreamActivityGame;
+}
+
+// USB HID usages
+#define HID_KEY_Q 0x14
+#define HID_KEY_F4 0x3D
+#define HID_KEY_LEFT_ALT 0xE2
+#define HID_KEY_LEFT_GUI 0xE3
+
+bool ihk_session_quit_game(IHKSession *s, bool mac_host) {
+    if (!ihk_session_game_running(s) || atomic_load(&s->disconnecting)) {
+        ihk_log(IHK_LOG_INFO, "Session: no game in front to quit");
+        return false;
+    }
+    const uint32_t modifier = mac_host ? HID_KEY_LEFT_GUI : HID_KEY_LEFT_ALT;
+    const uint32_t key = mac_host ? HID_KEY_Q : HID_KEY_F4;
+    // Spaced out like real typing: sent back to back, a Mac host misses the
+    // modifier and the game sees a plain Q
+    const struct timespec gap = {.tv_sec = 0, .tv_nsec = 60 * 1000 * 1000};
+    bool sent = IHS_SessionSendKeyDown(s->session, modifier);
+    nanosleep(&gap, NULL);
+    sent = IHS_SessionSendKeyDown(s->session, key) && sent;
+    nanosleep(&gap, NULL);
+    sent = IHS_SessionSendKeyUp(s->session, key) && sent;
+    nanosleep(&gap, NULL);
+    sent = IHS_SessionSendKeyUp(s->session, modifier) && sent;
+    char line[96];
+    snprintf(line, sizeof(line), "Session: %s game %u with %s", sent ? "quit" : "couldn't quit",
+             (unsigned) s->session->state.activityAppId, mac_host ? "Cmd+Q" : "Alt+F4");
+    ihk_log(IHK_LOG_INFO, line);
+    return sent;
 }
 
 void ihk_session_destroy(IHKSession *s) {

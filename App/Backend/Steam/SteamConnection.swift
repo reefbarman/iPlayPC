@@ -34,13 +34,17 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 	private let secretKey: Data
 	private let grant: IHKStreamGrant
 	private let config: StreamConfig
+	/// Games close with Cmd+Q on a Mac, Alt+F4 elsewhere
+	private let macHost: Bool
 
-	init(deviceID: UInt64, deviceName: String, secretKey: Data, grant: IHKStreamGrant, config: StreamConfig) {
+	init(deviceID: UInt64, deviceName: String, secretKey: Data, grant: IHKStreamGrant, config: StreamConfig,
+		 macHost: Bool) {
 		self.deviceID = deviceID
 		self.deviceName = deviceName
 		self.secretKey = secretKey
 		self.grant = grant
 		self.config = config
+		self.macHost = macHost
 	}
 
 	deinit {
@@ -84,23 +88,58 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		}
 	}
 
-	func stop() {
-		let (session, waiter) = state.withLockUnchecked { state -> (OpaquePointer?, CheckedContinuation<Void, Error>?) in
-			guard !state.stopped else { return (nil, nil) }
+	func stop(quittingGame: Bool) {
+		let (session, waiter, connected) = state.withLockUnchecked {
+			state -> (OpaquePointer?, CheckedContinuation<Void, Error>?, Bool) in
+			guard !state.stopped else { return (nil, nil, false) }
 			state.stopped = true
 			let session = state.session
 			state.session = nil
 			let waiter = state.waiter
 			state.waiter = nil
-			return (session, waiter)
+			return (session, waiter, state.connected && !state.ended)
 		}
 		waiter?.resume(throwing: CancellationError())
 		guard let session else { return }
-		ihk_session_stop(session)
-		// Keeps self alive until ihslib's threads have finished calling into it
 		let handle = SessionHandle(pointer: session)
-		teardownQueue.async { [self] in
+		let closing = quittingGame && connected && ihk_session_game_running(session)
+		if closing {
+			// The teardown queue is serial, so the keys go out before the disconnect
+			closeGameLater(handle)
+		} else {
+			if quittingGame { consoleLog("No game running on the PC to quit") }
+			ihk_session_stop(session)
+		}
+		// Keeps self alive until ihslib's threads have finished calling into it. The
+		// keys are queued on the control channel; give them a moment to reach the PC
+		// before the disconnect tears the channel down
+		teardownQueue.asyncAfter(deadline: .now() + (closing ? 0.5 : 0)) { [self] in
+			ihk_session_stop(handle.pointer)
 			ihk_session_destroy(handle.pointer)
+			_ = self
+		}
+	}
+
+	func quitGame() -> Bool {
+		guard let session else { return false }
+		guard ihk_session_game_running(session) else {
+			consoleLog("No game running on the PC to quit")
+			return false
+		}
+		closeGameLater(SessionHandle(pointer: session))
+		return true
+	}
+
+	/// The keys are spaced out, so they're pressed on the teardown queue rather than
+	/// the caller's. stop() destroys the session on the same serial queue, so it's
+	/// still alive here.
+	private func closeGameLater(_ handle: SessionHandle) {
+		let macHost = macHost
+		teardownQueue.async { [self] in
+			if ihk_session_quit_game(handle.pointer, macHost) {
+				sessionLog.notice("Closed the game on the PC")
+				consoleLog("Closed the game on the PC (\(macHost ? "Cmd+Q" : "Alt+F4"))")
+			}
 			_ = self
 		}
 	}

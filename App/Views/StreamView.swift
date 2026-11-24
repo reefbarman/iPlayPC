@@ -31,6 +31,10 @@ struct StreamView: View {
 	@State private var menuNavigation = SettingsNavigation()
 	/// A controller quits with a second press of A
 	@State private var quitArmed = false
+	/// Same for closing the game
+	@State private var quitGameArmed = false
+	/// Quit game was pressed but Steam says no game is running
+	@State private var noGameToQuit = false
 	/// The iPhone keyboard is up, typing into the game
 	@State private var showKeyboard = false
 
@@ -107,6 +111,8 @@ struct StreamView: View {
 			if !open {
 				menuNavigation.path.removeAll()
 				quitArmed = false
+				quitGameArmed = false
+				noGameToQuit = false
 			}
 		}
 	}
@@ -512,7 +518,7 @@ struct StreamView: View {
 				Image(systemName: "rotate.right").font(.largeTitle)
 				Text("Turn your phone sideways").font(.title2.bold())
 				Text("Turn to landscape to play.").foregroundStyle(.secondary)
-				Button(session == nil ? "Cancel" : "Quit") { dismiss() }.buttonStyle(.bordered).padding(.top, 8)
+				Button(session == nil ? "Cancel" : "Quit", action: quit).buttonStyle(.bordered).padding(.top, 8)
 			}
 		}
 	}
@@ -529,7 +535,7 @@ struct StreamView: View {
 				} else {
 					Text("Paused").font(.title2.bold())
 					Text("Unfold to keep playing.").foregroundStyle(.secondary)
-					Button("Quit") { dismiss() }.buttonStyle(.bordered).padding(.top, 8)
+					Button("Quit", action: quit).buttonStyle(.bordered).padding(.top, 8)
 				}
 			}
 		}
@@ -539,15 +545,35 @@ struct StreamView: View {
 		Binding(get: { settingsStore.settings }, set: { settingsStore.settings = $0 })
 	}
 
+	/// Leaving mid-stream closes the game on the PC too
 	private func quit() {
 		showMenu = false
+		session?.stop(quittingGame: true)
 		dismiss()
+	}
+
+	/// Closes the game and keeps streaming, back to Big Picture
+	private func quitGame() {
+		quitGameArmed = false
+		if session?.quitGame() == true {
+			showMenu = false
+		} else {
+			noGameToQuit = true
+		}
+	}
+
+	private var quitGameLabel: String {
+		if noGameToQuit { return "No game running" }
+		return quitGameArmed ? "Press again to quit the game" : "Quit game"
 	}
 
 	private var menuRows: [GamepadRow] {
 		[
 			GamepadRow(id: "resume", confirmLabel: "Resume", activate: { showMenu = false }),
 			GamepadRow(id: "keyboard", confirmLabel: "Open", activate: openKeyboardFromMenu),
+			GamepadRow(id: "quitGame", confirmLabel: quitGameArmed ? "Confirm" : "Quit game", activate: {
+				if quitGameArmed { quitGame() } else { quitGameArmed = true }
+			}),
 			GamepadRow(id: "quit", confirmLabel: quitArmed ? "Confirm quit" : "Quit", activate: {
 				if quitArmed { quit() } else { quitArmed = true }
 			}),
@@ -563,10 +589,13 @@ struct StreamView: View {
 						.gamepadRow("resume")
 					Button("Type with the keyboard", action: openKeyboardFromMenu)
 						.gamepadRow("keyboard")
+					Button(quitGameLabel, role: .destructive, action: quitGame)
+						.gamepadRow("quitGame")
+						.disabled(noGameToQuit)
 					Button(quitArmed ? "Press again to quit" : "Quit", role: .destructive, action: quit)
 						.gamepadRow("quit")
 				} footer: {
-					Text("Quitting ends the stream. Games keep running on your PC.")
+					Text("Quit game closes the game and takes you back to Big Picture. Quit ends the stream and closes the game too.")
 				}
 				Section {
 					LabeledContent {
@@ -597,6 +626,12 @@ struct StreamView: View {
 				guard quitArmed else { return }
 				try? await Task.sleep(for: .seconds(3))
 				quitArmed = false
+			}
+			.task(id: quitGameArmed || noGameToQuit) {
+				guard quitGameArmed || noGameToQuit else { return }
+				try? await Task.sleep(for: .seconds(3))
+				quitGameArmed = false
+				noGameToQuit = false
 			}
 		}
 		// The Controller Test (on the Controller page) borrows the stream's controller while it's open

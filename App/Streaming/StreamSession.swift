@@ -238,10 +238,17 @@ final class StreamSession {
 		}
 	}
 
-	/// Ends the stream. Safe to call more than once.
-	func stop() {
-		teardown()
+	/// Ends the stream. Safe to call more than once. quittingGame also asks the PC
+	/// to close the game.
+	func stop(quittingGame: Bool = false) {
+		teardown(quittingGame: quittingGame)
 		if case .ended = state {} else { state = .ended(error: nil) }
+	}
+
+	/// Closes the game on the PC and keeps streaming, so the player lands back in
+	/// Big Picture. Returns false if no game is running.
+	func quitGame() -> Bool {
+		stream?.quitGame() ?? false
 	}
 
 	/// From the "ended" screen: a fresh stream with the latest settings
@@ -258,7 +265,7 @@ final class StreamSession {
 		state = .ended(error: end.message)
 	}
 
-	private func teardown() {
+	private func teardown(quittingGame: Bool = false) {
 		streamID &+= 1
 		connectTask?.cancel()
 		connectTask = nil
@@ -276,7 +283,7 @@ final class StreamSession {
 		heldMouseButtons.removeAll()
 		mouseRemainder = .zero
 		audio.stop()
-		stream?.stop()
+		stream?.stop(quittingGame: quittingGame)
 		stream = nil
 		video?.stop()
 		video = nil

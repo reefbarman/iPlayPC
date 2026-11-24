@@ -267,7 +267,10 @@ final class SteamBackend: StreamBackend {
 			self.finishStreamRequest(.failure(CancellationError()))
 		}
 		ihsLog.notice("Stream granted at \(cString(&target.address), privacy: .public)")
-		return SteamConnection(deviceID: deviceID, deviceName: deviceName, secretKey: key, grant: grant, config: config)
+		// EOSType: macOS is -102 to -1, Windows 0 and up, Linux below -102
+		let macHost = (-102 ... -1).contains(target.os_type)
+		return SteamConnection(deviceID: deviceID, deviceName: deviceName, secretKey: key, grant: grant, config: config,
+			macHost: macHost)
 	}
 
 	/// Resumes the stream request waiter once

@@ -215,6 +215,16 @@ bool ihk_session_start(IHKSession *session);
 /// Asks the host to end the stream. on_disconnected follows.
 void ihk_session_stop(IHKSession *session);
 
+/// Whether Steam last said a game is in front (not the desktop or Big Picture).
+bool ihk_session_game_running(IHKSession *session);
+
+/// Closes the game in front: presses Alt+F4, or Cmd+Q when mac_host. Does
+/// nothing unless ihk_session_game_running. Blocks for about 200 ms (the keys
+/// are spaced out), so call it off the main thread. Keys are queued like any
+/// input, so give them a moment to go out before ihk_session_stop. Returns whether it pressed them.
+/// (Steam ignores k_EStreamControlQuitRequest from a client, so keys it is.)
+bool ihk_session_quit_game(IHKSession *session, bool mac_host);
+
 /// Stops, waits for ihslib's threads and frees. No callbacks after this returns.
 /// Don't call it from a session callback.
 void ihk_session_destroy(IHKSession *session);

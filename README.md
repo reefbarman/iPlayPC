@@ -15,6 +15,15 @@ Your controller shows up on the PC as a real gamepad, so Steam Input and games s
 - Controllers without motion sensors (such as a Backbone) use the phone's gyro.
 - Switching controllers mid-game swaps what the PC sees.
 
+## Quitting
+
+The stream menu has two ways out:
+
+- **Quit game** closes the game on your PC and keeps streaming, so you land back in Big Picture to pick something else.
+- **Quit** ends the stream and closes the game too.
+
+Both close the game the way you would at the PC (Alt+F4 on Windows and Linux, Cmd+Q on a Mac), so a game may ask before closing, and anything unsaved is lost. They only act when Steam reports a game is running, never on the desktop or in Big Picture.
+
 Not affiliated with or endorsed by Valve. "Steam" and "Steam Remote Play" are trademarks of Valve Corporation.
 
 ## Build from source
