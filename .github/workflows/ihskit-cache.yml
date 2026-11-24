@@ -1,0 +1,32 @@
+# Builds IHSKit on main and saves it to the Actions cache so release tags can
+# restore it. Tag runs cannot share caches with each other, only with main.
+name: IHSKit cache
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - vendor/**
+            - IHSKit/**
+            - scripts/build-ihskit.sh
+            - .github/actions/ihskit/**
+            - .github/workflows/ihskit-cache.yml
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    ihskit:
+        # Same runner as the release: the app uses iOS 27 SDK APIs
+        runs-on: xcode-27
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: latest-stable
+
+            - uses: ./.github/actions/ihskit
+              with:
+                  save: "true"

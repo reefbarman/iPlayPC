@@ -1,0 +1,31 @@
+{
+  "name": "iPlayPC",
+  "identifier": "io.github.reefbarman.iplaypc.source",
+  "subtitle": "Steam Remote Play for iPhone",
+  "description": "Stream your PC's Steam games to iPhone and iPad over your local network. Releases are published automatically from github.com/reefbarman/iPlayPC.",
+  "iconURL": "https://raw.githubusercontent.com/reefbarman/iPlayPC/main/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+  "website": "https://github.com/reefbarman/iPlayPC",
+  "tintColor": "#2A62E8",
+  "apps": [
+    {
+      "name": "iPlayPC",
+      "bundleIdentifier": "io.github.reefbarman.iplaypc",
+      "developerName": "reefbarman",
+      "subtitle": "Steam Remote Play over your local network",
+      "localizedDescription": "Play with on-screen virtual controls or a supported controller such as an Xbox controller, DualSense or Backbone. By default, virtual controls stay out of the way while a controller is connected.\n\nStream games from a PC running Steam to your iPhone or iPad over Wi-Fi, using Steam's own Remote Play. Automatic PC discovery and PIN pairing, hardware HEVC/H.264 decoding with Metal, HDR from supported PCs, rumble, gyro aiming, the phone keyboard for typing, voice chat and Wake-on-LAN. Tuned for the iPhone Duo's inner screen, and works on any iPhone or iPad running iOS 17 or later.",
+      "iconURL": "https://raw.githubusercontent.com/reefbarman/iPlayPC/main/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "tintColor": "#2A62E8",
+      "category": "entertainment",
+      "screenshots": [],
+      "versions": [],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "iPlayPC finds and connects to PCs running Steam on your local network.",
+          "NSMicrophoneUsageDescription": "iPlayPC sends your voice to your PC for voice chat when Microphone is on in settings."
+        }
+      }
+    }
+  ],
+  "news": []
+}

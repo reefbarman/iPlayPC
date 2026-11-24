@@ -1,0 +1,65 @@
+# Restores Frameworks/IHSKit.xcframework from the Actions cache, or builds it
+# when the cache misses. The submodules the IHSKit CMake build uses are only
+# fetched on a miss.
+#
+# Caches saved from a tag run are only visible to that tag, so releases restore
+# what ihskit-cache.yml saves on main rather than saving their own.
+name: IHSKit
+description: Restore or build the device-only IHSKit.xcframework
+inputs:
+  save:
+    description: Save the framework to the cache after building it
+    default: "false"
+outputs:
+  cache-hit:
+    description: Whether the framework came from the cache
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Compute IHSKit cache key
+      id: key
+      shell: bash
+      env:
+        SLICES: ios
+      run: |
+        # Submodule pins, the untouched ihslib copy, our patches and bridge, the
+        # build script and the toolchain.
+        inputs=$( {
+          git ls-tree -r HEAD vendor IHSKit scripts/build-ihskit.sh
+          xcodebuild -version
+          echo "slices=$SLICES"
+        } | shasum -a 256 | cut -c1-16)
+        echo "key=ihskit-$inputs" >> "$GITHUB_OUTPUT"
+
+    - name: Restore IHSKit
+      id: restore
+      uses: actions/cache/restore@v6
+      with:
+        path: Frameworks/IHSKit.xcframework
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Fetch IHSKit sources
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        git submodule update --init --depth 1 vendor/mbedtls vendor/opus vendor/protobuf-c
+        git -C vendor/mbedtls submodule update --init --depth 1 framework
+
+    - name: Build IHSKit
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        SLICES: ios
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      run: |
+        command -v cmake >/dev/null && command -v ninja >/dev/null || brew install cmake ninja
+        scripts/build-ihskit.sh
+
+    - name: Save IHSKit
+      if: inputs.save == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: Frameworks/IHSKit.xcframework
+        key: ${{ steps.key.outputs.key }}

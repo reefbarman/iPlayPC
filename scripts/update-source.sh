@@ -2,7 +2,7 @@
 # Adds a release to altstore-source.json (newest first) so SideStore/AltStore
 # users get the update. Run by the release workflow.
 #
-#   scripts/update-source.sh VERSION path/to/iPlayNow.ipa DOWNLOAD_URL
+#   scripts/update-source.sh VERSION path/to/iPlayPC.ipa DOWNLOAD_URL
 set -euo pipefail
 
 VERSION="$1"

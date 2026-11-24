@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds an unsigned build/iPlayNow.ipa for sideloading. SideStore, AltStore and
+# Builds an unsigned build/iPlayPC.ipa for sideloading. SideStore, AltStore and
 # Sideloadly re-sign it with the installer's own Apple ID.
 #
 #   scripts/package-ipa.sh
@@ -11,22 +11,22 @@ cd "$ROOT"
 
 VERSION="${VERSION:-0.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
-BUNDLE_ID="${BUNDLE_ID:-io.github.reefbarman.iplaynow}"
+BUNDLE_ID="${BUNDLE_ID:-io.github.reefbarman.iplaypc}"
 DERIVED="$ROOT/build/DerivedData-ipa"
 STAGE="$ROOT/build/ipa"
-OUT="$ROOT/build/iPlayNow.ipa"
+OUT="$ROOT/build/iPlayPC.ipa"
 
-[ -d Frameworks/OpenSSL.xcframework ] && [ -d Frameworks/usrsctp.xcframework ] || scripts/prepare-frameworks.sh
+[ -d Frameworks/IHSKit.xcframework ] || SLICES=ios scripts/build-ihskit.sh
 xcodegen generate
 
-xcodebuild -project iPlayNow.xcodeproj -scheme iPlayNow -configuration Release \
+xcodebuild -project iPlayPC.xcodeproj -scheme iPlayPC -configuration Release \
 	-destination 'generic/platform=iOS' -derivedDataPath "$DERIVED" \
 	CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
-	IPLAYNOW_BUNDLE_ID="$BUNDLE_ID" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+	IPLAYPC_BUNDLE_ID="$BUNDLE_ID" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
 	build
 
 rm -rf "$STAGE" "$OUT"
 mkdir -p "$STAGE/Payload"
-cp -R "$DERIVED/Build/Products/Release-iphoneos/iPlayNow.app" "$STAGE/Payload/"
+cp -R "$DERIVED/Build/Products/Release-iphoneos/iPlayPC.app" "$STAGE/Payload/"
 (cd "$STAGE" && zip -qry "$OUT" Payload)
 echo "Built $OUT"
