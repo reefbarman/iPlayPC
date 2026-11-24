@@ -175,6 +175,9 @@ typedef struct {
     /// Tell the host this client has a microphone (only negotiated at connect).
     /// The host then opens a mic channel; push audio with ihk_session_push_mic.
     bool enable_microphone;
+    /// Ask for HDR10 (needs enable_hevc). The host only sends it from an HDR display
+    /// with a hardware encoder; the decoded frames' colour tags say what came.
+    bool enable_hdr;
 } IHKSessionConfig;
 
 /// All optional. They fire on ihslib's session threads; never destroy the

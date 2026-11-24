@@ -1,0 +1,272 @@
+From: iPlayPC
+Subject: video: ask the host for HDR10
+
+ihslib's protocol files predate Steam's HDR streaming. Add the newer fields we
+need to the generated protobuf-c code (k_EStreamColorspace_HDR10,
+CStreamingClientConfig.hdr_mode = 42 as an int32 carrying EStreamHDRMode, and
+CStartVideoDataMsg.colorspace = 6), and an enableHdr session option that
+advertises BT.709 plus HDR10 in the client caps, sets hdr_mode on and asks for
+the Beautiful preset, which Steam needs before it sends HDR. Without it nothing
+changes on the wire. The host's chosen colour space is passed to the
+application as IHS_StreamVideoConfig.colorspace.
+
+diff -ruN a/include/ihslib/session.h b/include/ihslib/session.h
+--- a/include/ihslib/session.h
++++ b/include/ihslib/session.h
+@@ -73,6 +73,12 @@
+      */
+     int32_t displayWidth;
+     int32_t displayHeight;
++    /**
++     * Ask for HDR10 (needs enableHevc): advertises the HDR10 colour space, turns
++     * hdr_mode on and asks for the Beautiful quality preset, which Steam needs before
++     * it sends HDR. The host still decides; IHS_StreamVideoConfig.colorspace says what came.
++     */
++    bool enableHdr;
+ } IHS_SessionConfig;
+ 
+ typedef struct IHS_StreamSessionCallbacks {
+diff -ruN a/include/ihslib/video.h b/include/ihslib/video.h
+--- a/include/ihslib/video.h
++++ b/include/ihslib/video.h
+@@ -53,6 +53,8 @@
+     IHS_StreamVideoCodec codec;
+     uint8_t *codecData;
+     size_t codecDataLen;
++    /** EStreamColorspace from the host: 0 unknown, 1-4 BT.601/709 (limited/full), 5 HDR10 */
++    int colorspace;
+ } IHS_StreamVideoConfig;
+ 
+ typedef enum IHS_StreamVideoSubmitResult {
+diff -ruN a/src/protobuf/remoteplay.pb-c.c b/src/protobuf/remoteplay.pb-c.c
+--- a/src/protobuf/remoteplay.pb-c.c	2026-11-24 16:21:32
++++ b/src/protobuf/remoteplay.pb-c.c	2026-11-24 16:23:06
+@@ -5810,6 +5810,18 @@
+     0,             /* flags */
+     0,NULL,NULL    /* reserved1,reserved2, etc */
+   },
++  {
++    "hdr_mode",
++    42,
++    PROTOBUF_C_LABEL_OPTIONAL,
++    PROTOBUF_C_TYPE_INT32,
++    offsetof(CStreamingClientConfig, has_hdr_mode),
++    offsetof(CStreamingClientConfig, hdr_mode),
++    NULL,
++    NULL,
++    0,             /* flags */
++    0,NULL,NULL    /* reserved1,reserved2, etc */
++  },
+ };
+ static const unsigned cstreaming_client_config__field_indices_by_name[] = {
+   11,   /* field[11] = audio_channels */
+@@ -5824,6 +5836,7 @@
+   16,   /* field[16] = enable_touch_controller_OBSOLETE */
+   12,   /* field[12] = enable_video_hevc */
+   8,   /* field[8] = enable_video_streaming */
++  19,   /* field[19] = hdr_mode */
+   5,   /* field[5] = maximum_bitrate_kbps */
+   4,   /* field[4] = maximum_framerate_denominator */
+   3,   /* field[3] = maximum_framerate_numerator */
+@@ -5832,11 +5845,12 @@
+   17,   /* field[17] = p2p_scope */
+   0,   /* field[0] = quality */
+ };
+-static const ProtobufCIntRange cstreaming_client_config__number_ranges[2 + 1] =
++static const ProtobufCIntRange cstreaming_client_config__number_ranges[3 + 1] =
+ {
+   { 1, 0 },
+   { 19, 17 },
+-  { 0, 19 }
++  { 42, 19 },
++  { 0, 20 }
+ };
+ const ProtobufCMessageDescriptor cstreaming_client_config__descriptor =
+ {
+@@ -5846,10 +5860,10 @@
+   "CStreamingClientConfig",
+   "",
+   sizeof(CStreamingClientConfig),
+-  19,
++  20,
+   cstreaming_client_config__field_descriptors,
+   cstreaming_client_config__field_indices_by_name,
+-  2,  cstreaming_client_config__number_ranges,
++  3,  cstreaming_client_config__number_ranges,
+   (ProtobufCMessageInit) cstreaming_client_config__init,
+   NULL,NULL,NULL    /* reserved[123] */
+ };
+@@ -6458,18 +6472,31 @@
+     0,             /* flags */
+     0,NULL,NULL    /* reserved1,reserved2, etc */
+   },
++  {
++    "colorspace",
++    6,
++    PROTOBUF_C_LABEL_OPTIONAL,
++    PROTOBUF_C_TYPE_ENUM,
++    offsetof(CStartVideoDataMsg, has_colorspace),
++    offsetof(CStartVideoDataMsg, colorspace),
++    &estream_colorspace__descriptor,
++    NULL,
++    0,             /* flags */
++    0,NULL,NULL    /* reserved1,reserved2, etc */
++  },
+ };
+ static const unsigned cstart_video_data_msg__field_indices_by_name[] = {
+   0,   /* field[0] = channel */
+   1,   /* field[1] = codec */
+   2,   /* field[2] = codec_data */
++  5,   /* field[5] = colorspace */
+   4,   /* field[4] = height */
+   3,   /* field[3] = width */
+ };
+ static const ProtobufCIntRange cstart_video_data_msg__number_ranges[1 + 1] =
+ {
+   { 1, 0 },
+-  { 0, 5 }
++  { 0, 6 }
+ };
+ const ProtobufCMessageDescriptor cstart_video_data_msg__descriptor =
+ {
+@@ -6479,7 +6506,7 @@
+   "CStartVideoDataMsg",
+   "",
+   sizeof(CStartVideoDataMsg),
+-  5,
++  6,
+   cstart_video_data_msg__field_descriptors,
+   cstart_video_data_msg__field_indices_by_name,
+   1,  cstart_video_data_msg__number_ranges,
+@@ -11800,23 +11827,25 @@
+   estream_bitrate__value_ranges,
+   NULL,NULL,NULL,NULL   /* reserved[1234] */
+ };
+-static const ProtobufCEnumValue estream_colorspace__enum_values_by_number[5] =
++static const ProtobufCEnumValue estream_colorspace__enum_values_by_number[6] =
+ {
+   { "k_EStreamColorspace_Unknown", "k_EStreamColorspace_Unknown", 0 },
+   { "k_EStreamColorspace_BT601", "k_EStreamColorspace_BT601", 1 },
+   { "k_EStreamColorspace_BT601_Full", "k_EStreamColorspace_BT601_Full", 2 },
+   { "k_EStreamColorspace_BT709", "k_EStreamColorspace_BT709", 3 },
+   { "k_EStreamColorspace_BT709_Full", "k_EStreamColorspace_BT709_Full", 4 },
++  { "k_EStreamColorspace_HDR10", "k_EStreamColorspace_HDR10", 5 },
+ };
+ static const ProtobufCIntRange estream_colorspace__value_ranges[] = {
+-{0, 0},{0, 5}
++{0, 0},{0, 6}
+ };
+-static const ProtobufCEnumValueIndex estream_colorspace__enum_values_by_name[5] =
++static const ProtobufCEnumValueIndex estream_colorspace__enum_values_by_name[6] =
+ {
+   { "k_EStreamColorspace_BT601", 1 },
+   { "k_EStreamColorspace_BT601_Full", 2 },
+   { "k_EStreamColorspace_BT709", 3 },
+   { "k_EStreamColorspace_BT709_Full", 4 },
++  { "k_EStreamColorspace_HDR10", 5 },
+   { "k_EStreamColorspace_Unknown", 0 },
+ };
+ const ProtobufCEnumDescriptor estream_colorspace__descriptor =
+@@ -11826,9 +11855,9 @@
+   "EStreamColorspace",
+   "EStreamColorspace",
+   "",
+-  5,
++  6,
+   estream_colorspace__enum_values_by_number,
+-  5,
++  6,
+   estream_colorspace__enum_values_by_name,
+   1,
+   estream_colorspace__value_ranges,
+diff -ruN a/src/protobuf/remoteplay.pb-c.h b/src/protobuf/remoteplay.pb-c.h
+--- a/src/protobuf/remoteplay.pb-c.h	2026-11-24 16:21:32
++++ b/src/protobuf/remoteplay.pb-c.h	2026-11-24 16:23:03
+@@ -291,7 +291,8 @@
+   k_EStreamColorspace_BT601 = 1,
+   k_EStreamColorspace_BT601_Full = 2,
+   k_EStreamColorspace_BT709 = 3,
+-  k_EStreamColorspace_BT709_Full = 4
++  k_EStreamColorspace_BT709_Full = 4,
++  k_EStreamColorspace_HDR10 = 5
+     PROTOBUF_C__FORCE_ENUM_TO_BE_INT_SIZE(ESTREAM_COLORSPACE)
+ } EStreamColorspace;
+ typedef enum _EStreamP2PScope {
+@@ -661,10 +662,13 @@
+   EStreamP2PScope p2p_scope;
+   protobuf_c_boolean has_enable_audio_uncompressed;
+   protobuf_c_boolean enable_audio_uncompressed;
++  /* EStreamHDRMode: 0 = automatic, 1 = on, 2 = off */
++  protobuf_c_boolean has_hdr_mode;
++  int32_t hdr_mode;
+ };
+ #define CSTREAMING_CLIENT_CONFIG__INIT \
+  { PROTOBUF_C_MESSAGE_INIT (&cstreaming_client_config__descriptor) \
+-    , 0, k_EStreamQualityBalanced, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 0, NULL, 0, 0, 0, k_EStreamP2PScopeAutomatic, 0, 0 }
++    , 0, k_EStreamQualityBalanced, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 0, NULL, 0, 0, 0, k_EStreamP2PScopeAutomatic, 0, 0, 0, 0 }
+ 
+ 
+ struct  CStreamingServerConfig
+@@ -796,10 +800,12 @@
+   uint32_t width;
+   protobuf_c_boolean has_height;
+   uint32_t height;
++  protobuf_c_boolean has_colorspace;
++  EStreamColorspace colorspace;
+ };
+ #define CSTART_VIDEO_DATA_MSG__INIT \
+  { PROTOBUF_C_MESSAGE_INIT (&cstart_video_data_msg__descriptor) \
+-    , 0, 0, k_EStreamVideoCodecNone, 0, {0,NULL}, 0, 0, 0, 0 }
++    , 0, 0, k_EStreamVideoCodecNone, 0, {0,NULL}, 0, 0, 0, 0, 0, k_EStreamColorspace_Unknown }
+ 
+ 
+ struct  CStopVideoDataMsg
+diff -ruN a/src/session/channels/ch_control_negotiation.c b/src/session/channels/ch_control_negotiation.c
+--- a/src/session/channels/ch_control_negotiation.c	2026-11-24 16:21:32
++++ b/src/session/channels/ch_control_negotiation.c	2026-11-24 16:24:02
+@@ -174,12 +174,18 @@
+         EStreamQualityPreference quality = ihsConf.quality == 1 ? k_EStreamQualityFast
+                                            : ihsConf.quality == 2 ? k_EStreamQualityBeautiful
+                                                                   : k_EStreamQualityBalanced;
++        // Steam only sends HDR to a client on its best quality preset
++        if (ihsConf.enableHdr) quality = k_EStreamQualityBeautiful;
+         PROTOBUF_C_SET_VALUE(clientConfig, quality, quality);
+         PROTOBUF_C_SET_VALUE(clientConfig, maximum_bitrate_kbps, maxBitrate);
+     }
+     if (ihsConf.enableHevc) {
+         PROTOBUF_C_SET_VALUE(clientConfig, enable_video_hevc, true);
+     }
++    // HDR10 needs HEVC (Main10). 1 = k_EStreamHDRModeOn; left unset (Auto) otherwise, as before.
++    if (ihsConf.enableHdr && ihsConf.enableHevc) {
++        PROTOBUF_C_SET_VALUE(clientConfig, hdr_mode, 1);
++    }
+ 
+     clientConfig.controller_overlay_hotkey = "auto";
+ 
+@@ -210,6 +216,15 @@
+     }
+     if (ihsConf.enableHevc) {
+         PROTOBUF_C_SET_VALUE(clientCaps, supports_video_hevc, true);
++    }
++    // With HDR, list the colour spaces we can show, HDR10 included. Without it, send
++    // nothing, as before, so SDR streams are unchanged.
++    EStreamColorspace colorspaces[] = {
++        k_EStreamColorspace_BT709, k_EStreamColorspace_BT709_Full, k_EStreamColorspace_HDR10,
++    };
++    if (ihsConf.enableHdr && ihsConf.enableHevc) {
++        clientCaps.supported_colorspaces = colorspaces;
++        clientCaps.n_supported_colorspaces = 3;
+     }
+     PROTOBUF_C_SET_VALUE(clientCaps, form_factor, k_EStreamDeviceFormFactorTV);
+ 
+diff -ruN a/src/session/channels/video/ch_data_video.c b/src/session/channels/video/ch_data_video.c
+--- a/src/session/channels/video/ch_data_video.c	2026-11-24 16:21:32
++++ b/src/session/channels/video/ch_data_video.c	2026-11-24 16:23:46
+@@ -161,6 +161,7 @@
+     videoCh->config.width = message->width;
+     videoCh->config.height = message->height;
+     videoCh->config.codec = (IHS_StreamVideoCodec) message->codec;
++    videoCh->config.colorspace = message->has_colorspace ? (int) message->colorspace : 0;
+     if (message->has_codec_data) {
+         videoCh->config.codecDataLen = message->codec_data.len;
+         videoCh->config.codecData = malloc(videoCh->config.codecDataLen);

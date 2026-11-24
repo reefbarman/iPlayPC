@@ -32,6 +32,10 @@ Your controller shows up on the PC as a real gamepad, so Steam Input and games s
 
 Use the iPhone keyboard to type on your PC. Open or close it by tapping the screen with three fingers, with the keyboard button that appears when you tap the top-left corner, or with **Type with the keyboard** in the stream menu. What you type goes to whatever has focus on the PC, such as a search box in Big Picture.
 
+## HDR
+
+On an iPhone or iPad with an HDR screen, turn on **HDR** under Settings (it switches the codec to H.265). iPlayPC then asks the PC for HDR10 and Steam's best quality preset. Steam only sends HDR from a Windows PC with an NVIDIA or AMD graphics card doing the encoding and HDR turned on in Windows display settings, and only while something HDR is on screen. Otherwise the stream stays in normal colour and still looks right.
+
 ## Voice chat
 
 Turn on **Settings › Audio › Microphone** (off by default) to send your voice to the PC, where games, Discord and Steam hear it as the PC's microphone. It takes effect the next time you connect. While streaming, tap the mic button in the bottom-left corner, or use **Mute microphone** in the stream menu, to mute it. On the phone's speaker iPlayPC uses echo cancellation, so the game audio doesn't feed back into the mic.

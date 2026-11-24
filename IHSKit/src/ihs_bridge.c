@@ -361,6 +361,7 @@ static void session_configuring(IHS_Session *session, IHS_SessionConfig *config,
     config->refreshRateDen = c->refresh_den;
     config->displayWidth = c->display_width;
     config->displayHeight = c->display_height;
+    config->enableHdr = c->enable_hdr;
 }
 
 static void session_connected(IHS_Session *session, void *context) {
@@ -386,6 +387,10 @@ static int video_start(IHS_Session *session, const IHS_StreamVideoConfig *config
         ihk_log(IHK_LOG_ERROR, "Video: unsupported codec");
         return -1;
     }
+    char line[96];
+    snprintf(line, sizeof(line), "Video: %ux%u, colour space %d%s", config->width, config->height,
+             config->colorspace, config->colorspace == 5 ? " (HDR10)" : "");
+    ihk_log(IHK_LOG_INFO, line);
     if (s->cb.on_video_start != NULL) {
         s->cb.on_video_start(s->cb.user, (IHKVideoCodec) config->codec, config->width, config->height);
     }

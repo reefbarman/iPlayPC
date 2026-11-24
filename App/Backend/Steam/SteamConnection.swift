@@ -167,6 +167,7 @@ final class SteamConnection: StreamConnection, @unchecked Sendable {
 		sessionConfig.enable_audio = true
 		sessionConfig.enable_microphone = config.microphone
 		sessionConfig.enable_hevc = config.hevc
+		sessionConfig.enable_hdr = config.hdr && config.hevc
 		sessionConfig.max_bitrate_kbps = Int32(clamping: config.maxBitrateKbps)
 		sessionConfig.quality = 0
 		sessionConfig.max_width = Int32(clamping: config.width)
