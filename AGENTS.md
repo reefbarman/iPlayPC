@@ -30,7 +30,7 @@ xcodegen generate
 
 ## Commits
 
-Conventional Commits, one commit per logical step, using the repo-local identity (Tristan Cartledge <tristan.cartledge@gmail.com>). There's no remote yet; don't create one until Tristan asks to publish.
+Conventional Commits, one commit per logical step, using the repo-local identity (Tristan Cartledge <tristan.cartledge@gmail.com>). The repo is public at `reefbarman/iPlayPC` (remote `git@github-personal:reefbarman/iPlayPC.git`); commit and push straight to `main`.
 
 ## Releases
 

@@ -4,11 +4,11 @@
 
 iPlayPC streams your PC's Steam library to your iPhone or iPad over your home network. Your PC only needs Steam with Remote Play turned on. It's the sibling of [iPlay5](https://github.com/reefbarman/iPlay5) (PS5 Remote Play) and [iPlayNow](https://github.com/reefbarman/iPlayNow) (GeForce NOW), with the same player, Metal renderer, frame generation, gyro aiming and virtual controls.
 
-**Work in progress.** It streams and plays, but there's no release yet.
+**Early preview.** It streams and plays, but so far it's mostly been tried against Steam on a Mac. Windows PCs, controllers, HDR and voice chat should work but haven't had much testing yet. If something doesn't work, please [open an issue](https://github.com/reefbarman/iPlayPC/issues).
 
 ## Install
 
-iPlayPC isn't on the App Store. Once it's released, you install the `.ipa` from [Releases](https://github.com/reefbarman/iPlayPC/releases) yourself with a sideloading tool, signed with your own Apple ID. A free Apple ID is enough. Free-account apps expire after 7 days unless they're refreshed, which SideStore and AltStore do in the background.
+iPlayPC isn't on the App Store. You install the `.ipa` from [Releases](https://github.com/reefbarman/iPlayPC/releases) yourself with a sideloading tool, signed with your own Apple ID. A free Apple ID is enough. Free-account apps expire after 7 days unless they're refreshed, which SideStore and AltStore do in the background.
 
 **SideStore or AltStore (recommended, gets updates):** add this source, then install iPlayPC from it:
 
