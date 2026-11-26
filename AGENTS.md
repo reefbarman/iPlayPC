@@ -2,7 +2,7 @@
 
 ## What this is
 
-iPlayPC streams a PC running Steam to iPhone and iPad over the local network, using Steam's own Remote Play protocol. It's from the same lineage as iPlay5 (`../iPlaystation`, PS5 Remote Play) and iPlayNow (`../iPlayGFN`, GeForce NOW): same app structure, player, renderer, settings, virtual controls and UX. Read those repos freely; don't edit them from here.
+iPlayPC streams a PC running Steam to iPhone and iPad over the local network, using Steam's own Remote Play protocol. It's from the same lineage as iPlay5 (`../iPlay5`, PS5 Remote Play) and iPlayNow (`../iPlayNow`, GeForce NOW): same app structure, player, renderer, settings, virtual controls and UX. Read those repos freely; don't edit them from here.
 
 The protocol comes from ihslib, built as `IHSKit` the way iPlay5 builds `ChiakiKit`. Everything the player sees is ours. Keep the app's streaming code behind the backend protocol in `App/Backend/` so a Moonlight backend can be added later without touching the player.
 
