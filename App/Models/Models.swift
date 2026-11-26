@@ -106,6 +106,27 @@ enum PhoneHaptics: String, Codable, CaseIterable, Identifiable {
 	}
 }
 
+/// How strongly a controller's motors play rumble
+enum ControllerVibration: String, Codable, CaseIterable, Identifiable {
+	case light, medium, full
+
+	var id: Self { self }
+	var label: String {
+		switch self {
+		case .light: "Light"
+		case .medium: "Medium"
+		case .full: "Full"
+		}
+	}
+	var scale: Float {
+		switch self {
+		case .light: 0.35
+		case .medium: 0.65
+		case .full: 1
+		}
+	}
+}
+
 /// Gyro aiming: turn the controller (or the phone) to move the right stick
 enum GyroAimMode: String, Codable, CaseIterable, Identifiable {
 	case off, always, holdingLT, holdingRB
@@ -214,6 +235,11 @@ struct StreamSettings: Codable, Equatable {
 	var rumble: Bool = true
 	/// How strongly rumble plays on the phone (virtual controls, or a controller without motors)
 	var phoneHaptics: PhoneHaptics = .full
+	/// How strongly a controller with motors plays rumble
+	var controllerVibration: ControllerVibration = .full
+	/// Most rumble updates per second sent to a controller's motors, 10...100. Each is a
+	/// Bluetooth packet on the link the controller's input uses; too many can stall input.
+	var controllerRumbleRate: Double = 25
 	/// Send the phone's mic to the PC for voice chat
 	var microphone: Bool = false
 	var virtualControls: VirtualControlsMode = .auto
@@ -288,6 +314,8 @@ struct StreamSettings: Codable, Equatable {
 		gyroAimPerAxisDeadzone = try c.decodeIfPresent(Bool.self, forKey: .gyroAimPerAxisDeadzone) ?? d.gyroAimPerAxisDeadzone
 		rumble = try c.decodeIfPresent(Bool.self, forKey: .rumble) ?? d.rumble
 		phoneHaptics = (try? c.decodeIfPresent(PhoneHaptics.self, forKey: .phoneHaptics)) ?? d.phoneHaptics
+		controllerVibration = (try? c.decodeIfPresent(ControllerVibration.self, forKey: .controllerVibration)) ?? d.controllerVibration
+		controllerRumbleRate = min(100, max(10, try c.decodeIfPresent(Double.self, forKey: .controllerRumbleRate) ?? d.controllerRumbleRate))
 		microphone = try c.decodeIfPresent(Bool.self, forKey: .microphone) ?? d.microphone
 		virtualControls = (try? c.decodeIfPresent(VirtualControlsMode.self, forKey: .virtualControls)) ?? d.virtualControls
 		controlsSize = (try? c.decodeIfPresent(ControlsSize.self, forKey: .controlsSize)) ?? d.controlsSize

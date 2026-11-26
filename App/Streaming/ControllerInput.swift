@@ -66,6 +66,10 @@ final class ControllerInput {
 	private var observers: [NSObjectProtocol] = []
 	private var comboTimer: Timer?
 	private var lastPad = GamepadState()
+	/// When the controller's motion sensors last reported. They report continuously,
+	/// so a gap means the controller (or Bluetooth) went quiet, not that nothing moved.
+	private var lastControllerMotion: CFTimeInterval?
+	private static let controllerQuietThreshold: CFTimeInterval = 0.25
 
 	/// Rumble on the controller or the phone
 	let feedback = ControllerFeedback()
@@ -83,6 +87,12 @@ final class ControllerInput {
 		observers.append(NotificationCenter.default.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
 			self?.pickController()
 		})
+		// iOS doesn't send controller input to background apps: that gap isn't a stall
+		for name in [UIApplication.willResignActiveNotification, UIApplication.didBecomeActiveNotification] {
+			observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+				self?.lastControllerMotion = nil
+			})
+		}
 		// Phone haptics until (unless) a controller with its own turns up
 		feedback.attach(nil)
 		pickController()
@@ -108,6 +118,7 @@ final class ControllerInput {
 		}
 		controller = nil
 		controllerName = nil
+		lastControllerMotion = nil
 		lastPad = GamepadState()
 		feedback.detach()
 	}
@@ -140,6 +151,7 @@ final class ControllerInput {
 		}
 		controller = next
 		controllerName = next?.vendorName
+		lastControllerMotion = nil
 		calibration.withLock { $0.reset() }
 		feedback.attach(next)
 		setIdentity(PadIdentity(ControllerStyle(next)))
@@ -269,7 +281,18 @@ final class ControllerInput {
 
 	// MARK: - Motion
 
+	/// On the controller's handler queue (main)
 	private func controllerMotion(_ motion: GCMotion) {
+		let now = CACurrentMediaTime()
+		if let last = lastControllerMotion, now - last > Self.controllerQuietThreshold {
+			// Diagnostics for input freezing while the stream carries on: this says the
+			// controller stopped reporting, rather than input being lost on the way to the PC.
+			// Rumble updates share the controller's Bluetooth link with its input.
+			let before = ControllerFeedback.controllerUpdates(from: last - 2, to: last)
+			let during = ControllerFeedback.controllerUpdates(from: last, to: now)
+			log.notice("Controller went quiet for \(Int((now - last) * 1000)) ms (\(self.controllerName ?? "?", privacy: .public)), rumble updates sent: \(before) in the 2 s before, \(during) during")
+		}
+		lastControllerMotion = now
 		// GameController's rotation axes for a controller are x right, y towards the
 		// player, z up. Reorder to x right, y up, z towards the player (the axes GyroStick
 		// expects), as SDL does (src/joystick/apple/SDL_mfijoystick.m).
@@ -285,7 +308,7 @@ final class ControllerInput {
 			a = motion.acceleration
 		}
 		let accel = -SIMD3<Float>(Float(a.x), Float(a.y), Float(a.z))
-		sendMotion(gyro: gyro, accel: accel, timestamp: Self.nowMicros())
+		sendMotion(gyro: gyro, accel: accel, timestamp: UInt32(truncatingIfNeeded: UInt64(now * 1_000_000)))
 	}
 
 	/// Any thread
@@ -332,9 +355,5 @@ final class ControllerInput {
 		}
 		// CoreMotion reports gravity's direction; calibration expects the reaction (+1 g up at rest)
 		sendMotion(gyro: gyro, accel: -accel, timestamp: UInt32(truncatingIfNeeded: UInt64(m.timestamp * 1_000_000)))
-	}
-
-	private static func nowMicros() -> UInt32 {
-		UInt32(truncatingIfNeeded: UInt64(CACurrentMediaTime() * 1_000_000))
 	}
 }

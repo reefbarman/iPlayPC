@@ -274,8 +274,12 @@ private struct ControllerSettingsPage: View {
 
 	private var rows: [GamepadRow] {
 		var rows = [GamepadRow.link("test") { testing = true }, .toggle("rumble", $settings.rumble)]
-		if Self.deviceHasHaptics && settings.rumble {
-			rows.append(.picker("haptics", $settings.phoneHaptics, PhoneHaptics.allCases))
+		if settings.rumble {
+			rows.append(.picker("vibration", $settings.controllerVibration, ControllerVibration.allCases))
+			rows.append(.slider("rumbleRate", $settings.controllerRumbleRate, 10...100, step: 5))
+			if Self.deviceHasHaptics {
+				rows.append(.picker("haptics", $settings.phoneHaptics, PhoneHaptics.allCases))
+			}
 		}
 		rows.append(.link(SettingsPage.gyroAim.rowID) { navigation.open(.gyroAim) })
 		return rows
@@ -293,6 +297,15 @@ private struct ControllerSettingsPage: View {
 			Section {
 				Toggle("Rumble", isOn: $settings.rumble)
 					.gamepadRow("rumble")
+				Picker("Controller vibration", selection: $settings.controllerVibration) {
+					ForEach(ControllerVibration.allCases) { Text($0.label).tag($0) }
+				}
+				.disabled(!settings.rumble)
+				.gamepadRow("vibration")
+				LabeledSlider(title: "Rumble updates", value: $settings.controllerRumbleRate, range: 10...100, step: 5,
+					valueText: settings.controllerRumbleRate >= 100 ? "Unlimited" : "\(Int(settings.controllerRumbleRate)) per second")
+					.disabled(!settings.rumble)
+					.gamepadRow("rumbleRate")
 				// iPads have no vibration motor
 				if Self.deviceHasHaptics {
 					Picker("Phone haptics", selection: $settings.phoneHaptics) {
@@ -305,10 +318,11 @@ private struct ControllerSettingsPage: View {
 				Text("Vibration")
 			} footer: {
 				if Self.deviceHasHaptics {
-					Text("Rumble turns all vibration on or off. Phone haptics sets how strongly the phone itself vibrates, which it does with virtual controls or a controller that has no motors (like a Backbone).")
+					Text("Rumble turns all vibration on or off. Controller vibration sets how strongly a controller's motors play it. Phone haptics sets how strongly the phone itself vibrates, which it does with virtual controls or a controller that has no motors (like a Backbone).")
 				} else {
-					Text("Rumble turns controller vibration on or off.")
+					Text("Rumble turns controller vibration on or off. Controller vibration sets how strongly the controller's motors play it.")
 				}
+				Text("Rumble updates limits how often vibration changes are sent to a wireless controller. They share its Bluetooth connection with your button presses, so too many can make the controls stop responding for a moment during heavy vibration. Lower it if that happens, raise it if vibration feels less detailed.")
 			}
 
 			Section {

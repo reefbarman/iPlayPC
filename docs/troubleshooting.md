@@ -20,6 +20,10 @@ Steam needs **Screen & System Audio Recording** permission and its streaming aud
 
 Open **Settings › Controller › Controller Test** to see exactly what the game gets from your controller and to try its rumble. For PlayStation extras (touchpad, lightbar, gyro in Steam Input), turn on **PlayStation Controller Support** in Steam's controller settings on the PC. See [Controllers](controllers.md).
 
+## The controller stops responding during heavy rumble
+
+A wireless controller's vibration and your button presses share one Bluetooth connection. If the controls freeze for a moment while the controller rumbles hard, lower **Settings › Controller › Vibration › Rumble updates**.
+
 ## Stutter or lost video
 
 - Turn on **Stats** (Settings › Display) to see bitrate, ping and loss.
