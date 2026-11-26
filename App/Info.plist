@@ -28,10 +28,6 @@
 			<key>ProfileName</key>
 			<string>ExtendedGamepad</string>
 		</dict>
-		<dict>
-			<key>ProfileName</key>
-			<string>DualSense</string>
-		</dict>
 	</array>
 	<key>GCSupportsControllerUserInteraction</key>
 	<true/>
@@ -39,6 +35,8 @@
 	<true/>
 	<key>IPlayPCSourceRef</key>
 	<string>$(IPLAYPC_SOURCE_REF)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
 	<key>LSRequiresIPhoneOS</key>

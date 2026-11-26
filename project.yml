@@ -44,6 +44,9 @@ targets:
         # Git ref Settings › About › Source code opens (set by scripts/package-ipa.sh, main otherwise)
         IPlayPCSourceRef: $(IPLAYPC_SOURCE_REF)
         LSRequiresIPhoneOS: true
+        # App Store Connect's export compliance answer: only standard encryption (Mbed TLS),
+        # so uploads skip the questions
+        ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.games
         UILaunchScreen: {}
         UIApplicationSceneManifest:
@@ -67,6 +70,6 @@ targets:
         # Game controllers can drive the UI and Game Mode kicks in while streaming
         GCSupportsControllerUserInteraction: true
         GCSupportsGameMode: true
+        # DualSense is an ExtendedGamepad. App Store Connect rejects any other profile name here
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
-          - ProfileName: DualSense
