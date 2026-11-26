@@ -242,6 +242,9 @@ struct StreamSettings: Codable, Equatable {
 	var controllerRumbleRate: Double = 25
 	/// Send the phone's mic to the PC for voice chat
 	var microphone: Bool = false
+	/// Keep the game audio playing in another app. iOS keeps the app running while it plays,
+	/// so the connection stays up instead of dropping when iOS suspends the app.
+	var backgroundAudio: Bool = true
 	var virtualControls: VirtualControlsMode = .auto
 	var controlsSize: ControlsSize = .medium
 	/// 0.2...1, multiplies the virtual controls' own transparency
@@ -317,6 +320,7 @@ struct StreamSettings: Codable, Equatable {
 		controllerVibration = (try? c.decodeIfPresent(ControllerVibration.self, forKey: .controllerVibration)) ?? d.controllerVibration
 		controllerRumbleRate = min(100, max(10, try c.decodeIfPresent(Double.self, forKey: .controllerRumbleRate) ?? d.controllerRumbleRate))
 		microphone = try c.decodeIfPresent(Bool.self, forKey: .microphone) ?? d.microphone
+		backgroundAudio = try c.decodeIfPresent(Bool.self, forKey: .backgroundAudio) ?? d.backgroundAudio
 		virtualControls = (try? c.decodeIfPresent(VirtualControlsMode.self, forKey: .virtualControls)) ?? d.virtualControls
 		controlsSize = (try? c.decodeIfPresent(ControlsSize.self, forKey: .controlsSize)) ?? d.controlsSize
 		controlsOpacity = min(1, max(0.2, try c.decodeIfPresent(Double.self, forKey: .controlsOpacity) ?? d.controlsOpacity))

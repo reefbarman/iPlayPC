@@ -26,6 +26,13 @@ If the connection drops mid-stream, including Wi-Fi just going quiet for 15 seco
 
 When the PC ends the stream itself (you quit from Steam, or the PC goes to sleep), iPlayPC doesn't try to reconnect.
 
+## Switching apps
+
+The stream stays connected while you're in another app. The picture and controller input pause while you're away, and the picture picks up from a fresh frame when you return.
+
+- With **Settings › Audio › Keep playing in the background** on (the default), the game audio keeps playing and the stream stays connected for as long as you're away. See [Audio](audio.md#keep-playing-in-the-background).
+- With it off, or if another app starts playing audio, iOS pauses iPlayPC soon after you leave. A quick look at another app comes straight back. After longer, the stream reconnects when you return.
+
 ## Tips
 
 - Turn on **Stats** (Settings › Display) to see bitrate, ping and loss.

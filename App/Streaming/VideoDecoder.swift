@@ -17,6 +17,19 @@ final class VideoDecoder {
 	private var session: VTDecompressionSession?
 	private var format: CMVideoFormatDescription?
 	private var parameterSets: [Data] = []
+	/// The output callback said the session is gone. iOS can tear it down while the app is
+	/// in the background, and then every frame fails there instead of in the decode call.
+	private var sessionLost = false
+	/// Frames in a row that didn't decode. A run of them means the decoder is stuck.
+	private var consecutiveFailures = 0
+	/// After a reset, frames before the next keyframe refer to pictures this decoder never
+	/// saw and can only fail, so they're skipped until one arrives.
+	private(set) var waitingForKeyframe = false
+	private var lastKeyframeRequest: CFTimeInterval = 0
+	/// How often to ask the PC for a keyframe again while waiting for one
+	private static let keyframeRequestInterval: CFTimeInterval = 0.5
+	/// Failed frames in a row before starting over from a keyframe
+	private static let failuresBeforeReset = 5
 
 	// Stats, read approximately from the main thread
 	private(set) var decodedFrames: Int = 0
@@ -37,13 +50,34 @@ final class VideoDecoder {
 			VTDecompressionSessionInvalidate(session)
 		}
 		session = nil
+		sessionLost = false
+		consecutiveFailures = 0
 	}
 
-	/// Returns false if the frame couldn't be decoded and an IDR frame should be requested.
+	/// Throws the decoder session away and waits for the next keyframe. Video thread.
+	func reset() {
+		invalidate()
+		waitingForKeyframe = true
+		lastKeyframeRequest = 0
+	}
+
+	/// While waiting for a keyframe: true when it's time to ask the PC for one
+	/// (straight away, then every half second). Video thread.
+	func keyframeRequestDue() -> Bool {
+		guard waitingForKeyframe else { return false }
+		let now = CACurrentMediaTime()
+		guard now - lastKeyframeRequest >= Self.keyframeRequestInterval else { return false }
+		lastKeyframeRequest = now
+		return true
+	}
+
+	/// Returns false if the frame couldn't be decoded. Frames skipped while waiting for a
+	/// keyframe return true: `keyframeRequestDue()` asks for one instead.
 	func decode(_ bytes: UnsafePointer<UInt8>, count: Int) -> Bool {
 		let nals = Self.splitAnnexB(bytes, count: count)
 		var newParams: [Int: Data] = [:]
 		var payload: [Range<Int>] = []
+		var keyframe = false
 
 		for nal in nals where !nal.isEmpty {
 			let header = bytes[nal.lowerBound]
@@ -52,14 +86,18 @@ final class VideoDecoder {
 				switch type {
 				case 32, 33, 34: newParams[type] = Data(bytes: bytes + nal.lowerBound, count: nal.count)  // VPS SPS PPS
 				case 35: continue  // AUD
-				default: payload.append(nal)
+				default:
+					if (16...21).contains(type) { keyframe = true }  // IRAP: BLA, IDR, CRA
+					payload.append(nal)
 				}
 			} else {
 				let type = Int(header & 0x1F)
 				switch type {
 				case 7, 8: newParams[type] = Data(bytes: bytes + nal.lowerBound, count: nal.count)  // SPS PPS
 				case 9: continue  // AUD
-				default: payload.append(nal)
+				default:
+					if type == 5 { keyframe = true }  // IDR
+					payload.append(nal)
 				}
 			}
 		}
@@ -76,18 +114,25 @@ final class VideoDecoder {
 			// No stream configuration yet: wait for (and ask for) a keyframe
 			return format != nil
 		}
+		if waitingForKeyframe {
+			guard keyframe else { return true }
+			waitingForKeyframe = false
+			log.notice("Keyframe arrived, decoding again")
+		}
 		if session == nil, !createSession(format) { return false }
 		guard let session else { return false }
 
 		guard let sample = makeSample(bytes, nals: payload, format: format) else { return false }
 
 		let start = CACurrentMediaTime()
+		let failedBefore = failedFrames
 		var infoFlags = VTDecodeInfoFlags()
 		let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [._1xRealTimePlayback], infoFlagsOut: &infoFlags) {
 			[weak self] status, _, imageBuffer, _, _ in
 			guard let self else { return }
 			guard status == noErr, let imageBuffer else {
 				self.failedFrames += 1
+				if Self.isSessionLost(status) { self.sessionLost = true }
 				return
 			}
 			self.decodedFrames += 1
@@ -95,16 +140,28 @@ final class VideoDecoder {
 		}
 		lastDecodeMs = (CACurrentMediaTime() - start) * 1000
 
+		// The output callback normally runs before the decode call returns
+		let failed = status != noErr || sessionLost || failedFrames > failedBefore
+		guard failed else {
+			consecutiveFailures = 0
+			return true
+		}
 		if status != noErr {
 			failedFrames += 1
 			log.error("Decode failed: \(status)")
-			if status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr {
-				// e.g. after the app was backgrounded: start over from the next keyframe
-				invalidate()
-			}
-			return false
 		}
-		return true
+		consecutiveFailures += 1
+		if sessionLost || Self.isSessionLost(status) || consecutiveFailures >= Self.failuresBeforeReset {
+			// e.g. after the app was backgrounded. A new session can't decode the frames
+			// that follow either: they need the pictures before them. Start over from a keyframe.
+			log.notice("Video decoder stuck (\(sessionLost || Self.isSessionLost(status) ? "session lost" : "\(consecutiveFailures) failed frames")), waiting for a keyframe")
+			reset()
+		}
+		return false
+	}
+
+	private static func isSessionLost(_ status: OSStatus) -> Bool {
+		status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr
 	}
 
 	// MARK: - Setup

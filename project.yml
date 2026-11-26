@@ -67,6 +67,10 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         NSLocalNetworkUsageDescription: iPlayPC finds and connects to PCs running Steam on your local network.
         NSMicrophoneUsageDescription: iPlayPC sends your voice to your PC for voice chat when Microphone is on in settings.
+        # Settings › Audio › Keep playing in the background: the game audio carries on in other
+        # apps, which keeps the stream connected. Off, the engine is paused so iOS suspends us
+        UIBackgroundModes:
+          - audio
         # Game controllers can drive the UI and Game Mode kicks in while streaming
         GCSupportsControllerUserInteraction: true
         GCSupportsGameMode: true

@@ -42,10 +42,23 @@ private final class VideoSink: @unchecked Sendable {
 	private(set) var bytes = 0
 	/// Frames that arrived but couldn't be decoded
 	private(set) var failed = 0
+	/// The app is in the background, where hardware decoding isn't available
+	private var backgrounded: Bool
+	/// Back from the background: iOS may have taken the decoder session, so start over
+	private var needsReset = false
 
-	init(renderer: MetalRenderer, tenBit: Bool) {
+	init(renderer: MetalRenderer, tenBit: Bool, backgrounded: Bool) {
 		self.renderer = renderer
 		self.tenBit = tenBit
+		self.backgrounded = backgrounded
+	}
+
+	/// Main thread
+	func setBackgrounded(_ value: Bool) {
+		lock.withLock {
+			if backgrounded, !value { needsReset = true }
+			backgrounded = value
+		}
 	}
 
 	func start(codec: VideoCodec) {
@@ -54,15 +67,26 @@ private final class VideoSink: @unchecked Sendable {
 		lock.withLock { self.decoder = decoder }
 	}
 
+	/// Returning false asks the PC for a keyframe
 	func decode(_ data: UnsafeRawBufferPointer) -> Bool {
 		guard let base = data.bindMemory(to: UInt8.self).baseAddress, let decoder = lock.withLock({ decoder }) else {
 			return false
 		}
+		let (away, reset) = lock.withLock { () -> (Bool, Bool) in
+			defer { if !backgrounded { needsReset = false } }
+			return (backgrounded, needsReset)
+		}
+		// Background decoding fails, and each failure would ask for another keyframe.
+		// Coming back starts over from a fresh one.
+		guard !away else { return true }
+		if reset { decoder.reset() }
 		let ok = decoder.decode(base, count: data.count)
 		lock.withLock {
 			bytes += data.count
 			if ok { frames += 1 } else { failed += 1 }
 		}
+		// Waiting for a keyframe after a reset: ask again until one arrives
+		if decoder.keyframeRequestDue() { return false }
 		return ok
 	}
 
@@ -164,6 +188,8 @@ final class StreamSession {
 	@ObservationIgnored private var lastSkipped = 0
 	@ObservationIgnored private var lastRepeated = 0
 	@ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
+	/// The app is in the background (another app, or the lock screen)
+	@ObservationIgnored private var backgrounded = false
 	/// Bumped on every teardown, so late callbacks from an old stream are ignored
 	@ObservationIgnored private var streamID = 0
 
@@ -176,7 +202,10 @@ final class StreamSession {
 		let center = NotificationCenter.default
 		lifecycleObservers = [
 			center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-				MainActor.assumeIsolated { self?.releaseInput() }
+				MainActor.assumeIsolated { self?.enterBackground() }
+			},
+			center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+				MainActor.assumeIsolated { self?.enterForeground() }
 			},
 		]
 	}
@@ -251,7 +280,7 @@ final class StreamSession {
 
 	private func run(_ stream: StreamConnection, id: Int, renderer: MetalRenderer) async throws {
 		self.stream = stream
-		let video = VideoSink(renderer: renderer, tenBit: streamSettings.hdr)
+		let video = VideoSink(renderer: renderer, tenBit: streamSettings.hdr, backgrounded: backgrounded)
 		self.video = video
 
 		stream.onVideoStart = { codec, _, _ in video.start(codec: codec) }
@@ -294,8 +323,10 @@ final class StreamSession {
 		state = .streaming
 		streamingSince = CACurrentMediaTime()
 		audio.start(stream: stream, mic: micAdvertised)
-		audio.muted = paused
+		applyAudioMute()
 		applyMicState()
+		// Connected (or reconnected) while in another app
+		if backgrounded { applyBackgroundAudio() }
 		sendPad()
 		UIApplication.shared.isIdleTimerDisabled = true
 		statsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -337,6 +368,50 @@ final class StreamSession {
 		} else {
 			state = .ended(error: end.message)
 		}
+	}
+
+	// MARK: - Background
+
+	/// Switching apps shouldn't cost the connection. With "Keep playing in the background" the
+	/// game audio carries on and iOS keeps us running for as long as it plays. Otherwise the
+	/// audio is paused and iOS suspends the app as usual: a short visit comes straight back,
+	/// and after a longer one the stream reconnects.
+	private func enterBackground() {
+		backgrounded = true
+		releaseInput()
+		video?.setBackgrounded(true)
+		applyBackgroundAudio()
+		if stream != nil {
+			log.notice("In the background, \(self.settings.backgroundAudio ? "game audio keeps the stream connected" : "audio paused")")
+		}
+	}
+
+	private func enterForeground() {
+		backgrounded = false
+		// The decoder starts over from a keyframe: iOS may have taken its session while away
+		video?.setBackgrounded(false)
+		applyBackgroundAudio()
+	}
+
+	private func applyBackgroundAudio() {
+		guard stream != nil else { return }
+		if !backgrounded {
+			audio.resumeOutput()
+			audio.setMic(settings.microphone && micAdvertised)
+		} else if settings.backgroundAudio {
+			// The mic stays muted while away: stop capturing so iOS doesn't show it recording
+			audio.setMic(false)
+		} else {
+			// With the audio background mode, a running engine would keep the app alive
+			audio.pauseOutput()
+		}
+		applyAudioMute()
+		applyMicState()
+	}
+
+	/// Paused streams are silent, except in another app with "Keep playing in the background" on
+	private func applyAudioMute() {
+		audio.muted = paused && !(backgrounded && settings.backgroundAudio)
 	}
 
 	// MARK: - Reconnect
@@ -489,7 +564,7 @@ final class StreamSession {
 		guard paused != self.paused else { return }
 		self.paused = paused
 		renderer?.setPaused(paused)
-		audio.muted = paused
+		applyAudioMute()
 		applyMicState()
 		if paused {
 			releaseInput()

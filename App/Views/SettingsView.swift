@@ -421,7 +421,9 @@ private struct AudioSettingsPage: View {
 	@Binding var settings: StreamSettings
 	@State private var micDenied = AVAudioApplication.shared.recordPermission == .denied
 
-	private var rows: [GamepadRow] { [.toggle("microphone", $settings.microphone)] }
+	private var rows: [GamepadRow] {
+		[.toggle("microphone", $settings.microphone), .toggle("backgroundAudio", $settings.backgroundAudio)]
+	}
 
 	var body: some View {
 		Form {
@@ -442,6 +444,13 @@ private struct AudioSettingsPage: View {
 					Text("iPlayPC doesn't have access to the microphone. Turn it on in Settings › Apps › iPlayPC.")
 				}
 				Text("Sends your voice to the PC for voice chat in games, Discord and Steam. Tap the mic button in the bottom-left corner of the stream to mute it. Turning it on takes effect the next time you connect.")
+			}
+			Section {
+				Toggle("Keep playing in the background", isOn: $settings.backgroundAudio)
+					.gamepadRow("backgroundAudio")
+			} footer: {
+				Text("The game audio keeps playing when you switch to another app, and the stream stays connected for as long as you're away. The picture and controller pause, and the microphone is muted until you come back.")
+				Text("When it's off, or another app starts playing audio, iOS pauses iPlayPC soon after you leave. The stream reconnects when you come back.")
 			}
 		}
 		.settingsPage("Audio")

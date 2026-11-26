@@ -20,6 +20,8 @@ final class AudioOutput {
 	private let scratch: UnsafeMutablePointer<Float>
 	private var observers: [NSObjectProtocol] = []
 	private var isMuted = false
+	/// Stopped for the background (see pauseOutput). Nothing restarts the engine until resumeOutput.
+	private var outputPaused = false
 
 	/// Read from the render thread. Set before start(), cleared after stop().
 	private var stream: StreamConnection?
@@ -150,6 +152,22 @@ final class AudioOutput {
 		source = nil
 		stream = nil
 		primed = false
+		outputPaused = false
+	}
+
+	/// With the audio background mode, a running engine keeps the app alive in the background
+	/// even when it's silent. Pausing it lets iOS suspend the app as usual.
+	func pauseOutput() {
+		guard source != nil, !outputPaused else { return }
+		outputPaused = true
+		engine.pause()
+		log.notice("Audio paused for the background")
+	}
+
+	func resumeOutput() {
+		guard outputPaused else { return }
+		outputPaused = false
+		restart(reason: "back from the background")
 	}
 
 	var muted: Bool {
@@ -174,10 +192,12 @@ final class AudioOutput {
 		guard wanted != micEnabled else { return }
 		log.notice("Restarting audio: mic \(wanted ? "on" : "off", privacy: .public)")
 		let live = micLive
+		let paused = outputPaused
 		stop()
 		engine = AVAudioEngine()
 		start(stream: stream, mic: mic)
 		micLive = live
+		if paused { pauseOutput() }
 	}
 
 	// MARK: - Mic
@@ -270,7 +290,7 @@ final class AudioOutput {
 
 	/// Reconnects our node (the output format may have changed) and starts the engine again.
 	private func restart(reason: String) {
-		guard let source, stream != nil, let format = Self.format else { return }
+		guard let source, stream != nil, !outputPaused, let format = Self.format else { return }
 		log.notice("Restarting audio: \(reason, privacy: .public)")
 		activateAudioSession()
 		engine.stop()
@@ -292,9 +312,11 @@ final class AudioOutput {
 		log.notice("Rebuilding audio after a media services reset")
 		let mic = micEnabled
 		let live = micLive
+		let paused = outputPaused
 		stop()
 		engine = AVAudioEngine()
 		start(stream: stream, mic: mic)
 		micLive = live
+		if paused { pauseOutput() }
 	}
 }
