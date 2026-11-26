@@ -13,9 +13,22 @@ With a DualSense or DualShock 4 connected, the app names buttons the PlayStation
 
 Hold **View + Menu** for a second during a stream to open the stream menu.
 
+**Settings › Controller › Controls Guide** explains the controller shortcuts, touch as a mouse, the virtual controls and the hidden corner buttons on the stream.
+
+## Starting without a controller
+
+If you tap **Play** with no controller connected, the stream waits and asks how you want to play:
+
+- Turn a controller on and the stream starts straight away.
+- **Use virtual controls** or **Connect without controls** picks one for that stream only. While it differs from your saved setting, the stream menu shows it with **Use saved virtual controls setting** to go back.
+
+This screen is skipped when **Settings › Virtual controls › Show virtual controls** is set to Always show.
+
 ## The Xbox button
 
-The controller's Xbox or PS button goes to Steam, which opens the Steam overlay or Big Picture. To press it without a controller, tap the top-left corner of the stream, then the Xbox logo.
+The controller's Xbox or PS button (its Home button) goes to Steam, which opens the Steam overlay or Big Picture. To press it without a controller, tap the top-left corner of the stream, then the Xbox logo.
+
+On iOS 27, iOS opens its Game Overlay when you press a controller's Home button, unless you let apps use it. The first time you play with a controller while iOS keeps Home for itself, iPlayPC offers to open that setting, and **Settings › Controller › Home Button Settings** opens it any time. Open it with your controller connected.
 
 ## Rumble
 

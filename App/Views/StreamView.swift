@@ -22,6 +22,10 @@ struct StreamView: View {
 	@State private var windowSize: CGSize = .zero
 	@State private var hasController = ControllerInput.hasSupportedController
 	@State private var autoShowsControls = !ControllerInput.hasSupportedController
+	/// Picked on the no-controller screen, for this stream only
+	@State private var sessionControlsMode: VirtualControlsMode?
+	/// iOS 27 keeps the controller's Home button unless the user lets apps have it
+	@State private var showHomeButtonPrompt = false
 	@State private var showSettingsHint = false
 	@State private var showGuideButton = false
 	@State private var hideGuideButton: Task<Void, Never>?
@@ -59,8 +63,14 @@ struct StreamView: View {
 		return settings
 	}
 
+	/// No controller and no choice yet, so the stream waits on the no-controller screen.
+	/// Always showing virtual controls is already a choice.
+	private var needsController: Bool {
+		!hasController && sessionControlsMode == nil && settingsStore.settings.virtualControls != .always
+	}
+
 	private var wantsVirtualControls: Bool {
-		switch settings.virtualControls {
+		switch sessionControlsMode ?? settings.virtualControls {
 		case .auto: !hasController && autoShowsControls
 		case .always: true
 		case .never: false
@@ -108,7 +118,9 @@ struct StreamView: View {
 			hintShown = true
 			flashSettingsHint()
 			revealFGButton()
+			askAboutHomeButtonOnce()
 		}
+		.onChange(of: settingsStore.settings.virtualControls) { _, _ in sessionControlsMode = nil }
 		.onChange(of: phone.isHot) { _, hot in
 			if hot, settings.fps > 30 { flashHeatWarning() }
 		}
@@ -120,6 +132,12 @@ struct StreamView: View {
 			if phase == .active { refreshControllerPresence() } else { session?.setPaused(true) }
 		}
 		.sheet(isPresented: $showMenu) { menu }
+		.alert("Use Home as the \(ControllerStyle.current.home) button?", isPresented: $showHomeButtonPrompt) {
+			Button("Open Settings") { HomeButtonSetting.openSettings() }
+			Button("Not Now", role: .cancel) {}
+		} message: {
+			Text("iOS opens its Game Overlay when you press your controller's Home button. To open the Steam overlay or Big Picture instead, change the controller's Home button setting so apps can use it. You can find this again in Settings › Controller.")
+		}
 		.onChange(of: acceptsScreenInput) { _, accepts in
 			// Folding, backgrounding, the menu or the stream ending puts the keyboard away
 			if !accepts { showKeyboard = false }
@@ -211,8 +229,56 @@ struct StreamView: View {
 				pausedOverlay
 			} else if portrait {
 				rotateOverlay
+			} else if needsController && session == nil {
+				controllerOverlay
 			}
 		}
+	}
+
+	private static let homeButtonPromptKey = "homeButtonPromptShown"
+
+	/// Once ever, the first time a stream starts with a controller while iOS 27
+	/// keeps the Home button for itself
+	private func askAboutHomeButtonOnce() {
+		guard hasController,
+			!UserDefaults.standard.bool(forKey: Self.homeButtonPromptKey),
+			HomeButtonSetting.blocksApps
+		else { return }
+		UserDefaults.standard.set(true, forKey: Self.homeButtonPromptKey)
+		showHomeButtonPrompt = true
+	}
+
+	private var controllerOverlay: some View {
+		ZStack {
+			Color.black.opacity(0.85).ignoresSafeArea()
+			VStack(spacing: 8) {
+				Image(systemName: "gamecontroller.fill").font(.largeTitle)
+				Text("No controller connected").font(.title2.bold())
+				Text("Turn on your controller or pair it in Settings › Bluetooth, and \(host.name) connects as soon as it's found. You can also play with virtual controls or connect without controls.")
+					.multilineTextAlignment(.center)
+					.foregroundStyle(.secondary)
+					.frame(maxWidth: 420)
+				ViewThatFits {
+					HStack { controllerChoices }
+					VStack { controllerChoices }
+				}
+				.padding(.top, 8)
+			}
+			.padding(24)
+		}
+	}
+
+	@ViewBuilder
+	private var controllerChoices: some View {
+		Button("Use virtual controls") { continueWithoutPhysicalController(.auto) }.buttonStyle(.borderedProminent)
+		Button("Connect without controls") { continueWithoutPhysicalController(.never) }.buttonStyle(.bordered)
+		Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(.bordered)
+	}
+
+	private func continueWithoutPhysicalController(_ mode: VirtualControlsMode) {
+		sessionControlsMode = mode
+		if mode == .auto { autoShowsControls = true }
+		update()
 	}
 
 	// MARK: - Lifecycle
@@ -275,7 +341,7 @@ struct StreamView: View {
 		portrait = !isFolded && !DeviceLayout.isPad && size.height > size.width
 		let canPlay = !isFolded && !portrait
 		guard session != nil else {
-			if canPlay && scenePhase == .active { startSession() }
+			if canPlay && !needsController && scenePhase == .active { startSession() }
 			return
 		}
 		session?.setPaused(!canPlay || scenePhase != .active)
@@ -750,8 +816,20 @@ struct StreamView: View {
 					showMenu = false
 				}
 			}),
-		] + StreamSettingsForm.gamepadRows(menuSettings, showsVideo: false) { menuNavigation.open($0) }
+		] + sessionControlsRows
+			+ StreamSettingsForm.gamepadRows(menuSettings, showsVideo: false) { menuNavigation.open($0) }
 			+ HelpSection.gamepadRows(isPreparing: $isPreparingDiagnostics, openURL: openURL)
+	}
+
+	/// Shown while this stream's virtual controls differ from the saved setting
+	private var sessionControlsOverride: VirtualControlsMode? {
+		guard let sessionControlsMode, sessionControlsMode != settingsStore.settings.virtualControls else { return nil }
+		return sessionControlsMode
+	}
+
+	private var sessionControlsRows: [GamepadRow] {
+		guard sessionControlsOverride != nil else { return [] }
+		return [GamepadRow(id: "sessionControls", confirmLabel: "Reset", activate: { sessionControlsMode = nil })]
 	}
 
 	private var menu: some View {
@@ -815,6 +893,13 @@ struct StreamView: View {
 					Text("Connection")
 				} footer: {
 					Text("Watches the next \(ConnectionCheck.duration) seconds of the stream for lost video, then suggests a maximum bitrate for your next stream. Play something with plenty of movement while it checks, since the PC sends much less on menus and quiet scenes.")
+				}
+				if let sessionControlsOverride {
+					Section {
+						LabeledContent("Virtual controls this session", value: sessionControlsOverride.label)
+						Button("Use saved virtual controls setting") { sessionControlsMode = nil }
+							.gamepadRow("sessionControls")
+					}
 				}
 				StreamSettingsForm(settings: menuSettings, showsVideo: false)
 				HelpSection(isPreparing: $isPreparingDiagnostics)
