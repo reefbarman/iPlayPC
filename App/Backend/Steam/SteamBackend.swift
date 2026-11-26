@@ -3,7 +3,7 @@ import IHSKit
 import os
 import UIKit
 
-private let ihsLog = Logger(subsystem: logSubsystem, category: "steam")
+private let ihsLog = AppLog(subsystem: logSubsystem, category: "steam")
 
 /// Steam Remote Play through IHSKit: discovery, PIN pairing and streams.
 ///

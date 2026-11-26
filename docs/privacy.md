@@ -29,6 +29,10 @@ Nothing is sent anywhere else. What Steam on your PC does is covered by Valve's 
 - **Local Network:** to find, pair with and stream from PCs on your network.
 - **Microphone:** only used while **Microphone** is on in settings, to send your voice to the PC for voice chat.
 
+## Diagnostics
+
+**Settings › Share diagnostics** creates a plain-text report only when you tap it, and you choose where it goes (for example, attached to a GitHub issue). IP and MAC addresses, IDs, pairing keys and your PCs' names are removed before you see it. Nothing is sent automatically. See [Help and troubleshooting](troubleshooting.md).
+
 ## Children
 
 iPlayPC doesn't knowingly collect data from anyone, including children, because it doesn't collect data at all.

@@ -2,7 +2,9 @@
 
 ## Reporting a problem
 
-[Open an issue on GitHub](https://github.com/reefbarman/iPlayPC/issues/new). Say which iPhone or iPad you have, the PC's operating system and graphics card, and what happened. The app version is under **Settings › About**.
+Right after the problem happens, without closing the app, open **Settings › Share diagnostics** and attach the file to a [GitHub issue](https://github.com/reefbarman/iPlayPC/issues/new). It's also at the bottom of the stream menu, so you can share it mid-game. **Report a problem on GitHub** in the same section opens a new issue. Say what happened, and the PC's operating system and graphics card.
+
+The report is plain text, so you can check it before sending. It has the app version, your iPhone or iPad model, screen details, settings and the app's logs since it was opened. IP and MAC addresses, IDs, pairing keys and your PCs' names are removed.
 
 ## The PC doesn't show up
 

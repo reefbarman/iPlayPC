@@ -46,7 +46,7 @@ Streaming from a Mac? Steam needs Screen & System Audio Recording permission and
 
 ## Reporting a problem
 
-[Open an issue](https://github.com/reefbarman/iPlayPC/issues/new) with your iPhone or iPad model, the PC's operating system and graphics card, and what happened. [Help and troubleshooting](docs/troubleshooting.md) has tips and known limitations.
+Right after it happens, open **Settings › Share diagnostics** and attach the file to a [new issue](https://github.com/reefbarman/iPlayPC/issues/new), with the PC's operating system and graphics card and what happened. Addresses, IDs, pairing keys and your PCs' names are removed from the report. [Help and troubleshooting](docs/troubleshooting.md) has tips and known limitations.
 
 ## Build from source
 

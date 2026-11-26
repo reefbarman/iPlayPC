@@ -2,7 +2,7 @@ import Foundation
 import IHSKit
 import os
 
-private let sessionLog = Logger(subsystem: logSubsystem, category: "steam")
+private let sessionLog = AppLog(subsystem: logSubsystem, category: "steam")
 
 /// One Steam Remote Play stream over an IHSKit session.
 ///

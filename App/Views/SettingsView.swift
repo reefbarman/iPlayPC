@@ -780,10 +780,13 @@ struct SettingsView: View {
 	@Environment(SettingsStore.self) private var store
 	@Environment(BitrateMemory.self) private var bitrateMemory
 	@Environment(\.dismiss) private var dismiss
+	@Environment(\.openURL) private var openURL
 	@State private var navigation = SettingsNavigation()
+	@State private var isPreparingDiagnostics = false
 
 	private var rows: [GamepadRow] {
 		StreamSettingsForm.gamepadRows(settingsBinding, bitrateMemory: bitrateMemory) { navigation.open($0) }
+			+ HelpSection.gamepadRows(isPreparing: $isPreparingDiagnostics, openURL: openURL)
 	}
 
 	private var settingsBinding: Binding<StreamSettings> {
@@ -795,6 +798,7 @@ struct SettingsView: View {
 		NavigationStack(path: $navigation.path) {
 			Form {
 				StreamSettingsForm(settings: settingsBinding)
+				HelpSection(isPreparing: $isPreparingDiagnostics)
 				AboutSection()
 			}
 			.navigationTitle("Settings")
@@ -805,5 +809,108 @@ struct SettingsView: View {
 			.settingsPages(settingsBinding, navigation: navigation)
 			.gamepadForm(rows, backLabel: "Done", active: navigation.path.isEmpty) { dismiss() }
 		}
+	}
+}
+
+/// Share diagnostics and report a problem, in Settings and the stream menu.
+/// `isPreparing` is a binding so the form's controller rows can start it too.
+struct HelpSection: View {
+	@Binding var isPreparing: Bool
+	@Environment(SettingsStore.self) private var store
+	@Environment(HostStore.self) private var hosts
+	@State private var showError = false
+	@State private var anchor = PresentationAnchor.Box()
+
+	/// The controller rows for this section, for the form's `gamepadForm`
+	static func gamepadRows(isPreparing: Binding<Bool>, openURL: OpenURLAction) -> [GamepadRow] {
+		[
+			GamepadRow(id: "help.diagnostics", confirmLabel: "Share", activate: { isPreparing.wrappedValue = true }),
+			GamepadRow(id: "help.report", confirmLabel: "Open", activate: { openURL(AppInfo.newIssue) }),
+		]
+	}
+
+	var body: some View {
+		Section {
+			Button {
+				isPreparing = true
+			} label: {
+				if isPreparing {
+					ProgressView("Preparing diagnostics…")
+				} else {
+					Label("Share diagnostics", systemImage: "ladybug")
+				}
+			}
+			.disabled(isPreparing)
+			.background(PresentationAnchor(box: anchor))
+			.gamepadRow("help.diagnostics")
+			Link(destination: AppInfo.newIssue) {
+				Label("Report a problem on GitHub", systemImage: "exclamationmark.bubble")
+			}
+			.gamepadRow("help.report")
+		} header: {
+			Text("Help")
+		} footer: {
+			Text("The report has your device model, screen details, settings and the app's logs since it was opened. IP and MAC addresses, IDs, pairing keys and your PCs' names are removed. Share it before closing the app, so the logs still cover the problem.")
+		}
+		.task(id: isPreparing) {
+			guard isPreparing else { return }
+			await prepareDiagnostics()
+		}
+		.alert("Couldn't prepare diagnostics", isPresented: $showError) {
+			Button("OK", role: .cancel) {}
+		} message: {
+			Text("Try sharing diagnostics again.")
+		}
+	}
+
+	private func prepareDiagnostics() async {
+		let saved = hosts.hosts
+		let report = DiagnosticsReport(
+			settings: store.settings,
+			pcs: saved.count,
+			pairedPCs: saved.filter(\.isPaired).count,
+			privateText: saved.map(\.name))
+		do {
+			let url = try await report.writeFile()
+			guard !Task.isCancelled else { return }
+			if !presentShareSheet(url) { showError = true }
+		} catch {
+			guard !Task.isCancelled else { return }
+			showError = true
+		}
+		isPreparing = false
+	}
+
+	/// Presented with UIKit rather than `.sheet`: a sheet attached to a Form row closes
+	/// again as soon as the row redraws (the button's label changes back right after)
+	private func presentShareSheet(_ url: URL) -> Bool {
+		guard let view = anchor.view, var top = view.window?.rootViewController else { return false }
+		while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+		let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+		controller.popoverPresentationController?.sourceView = view
+		controller.popoverPresentationController?.sourceRect = view.bounds
+		top.present(controller, animated: true)
+		return true
+	}
+}
+
+/// A plain UIKit view behind a SwiftUI control, to present UIKit sheets from the
+/// control's own window (the Duo can show two) and anchor popovers on iPad
+private struct PresentationAnchor: UIViewRepresentable {
+	final class Box {
+		weak var view: UIView?
+	}
+
+	let box: Box
+
+	func makeUIView(context: Context) -> UIView {
+		let view = UIView()
+		view.isUserInteractionEnabled = false
+		box.view = view
+		return view
+	}
+
+	func updateUIView(_ view: UIView, context: Context) {
+		box.view = view
 	}
 }

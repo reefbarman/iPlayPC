@@ -9,6 +9,8 @@ struct StreamView: View {
 	@Environment(BitrateMemory.self) private var bitrateMemory
 	@Environment(\.dismiss) private var dismiss
 	@Environment(\.scenePhase) private var scenePhase
+	@Environment(\.openURL) private var openURL
+	@State private var isPreparingDiagnostics = false
 	@State private var session: StreamSession?
 	@State private var showMenu = false
 	@State private var showMenuButton = false
@@ -749,6 +751,7 @@ struct StreamView: View {
 				}
 			}),
 		] + StreamSettingsForm.gamepadRows(menuSettings, showsVideo: false) { menuNavigation.open($0) }
+			+ HelpSection.gamepadRows(isPreparing: $isPreparingDiagnostics, openURL: openURL)
 	}
 
 	private var menu: some View {
@@ -814,6 +817,7 @@ struct StreamView: View {
 					Text("Watches the next \(ConnectionCheck.duration) seconds of the stream for lost video, then suggests a maximum bitrate for your next stream. Play something with plenty of movement while it checks, since the PC sends much less on menus and quiet scenes.")
 				}
 				StreamSettingsForm(settings: menuSettings, showsVideo: false)
+				HelpSection(isPreparing: $isPreparingDiagnostics)
 			}
 			.navigationTitle(host.name)
 			.navigationBarTitleDisplayMode(.inline)

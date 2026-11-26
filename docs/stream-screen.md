@@ -4,12 +4,12 @@
 
 The corners of the stream have hidden buttons, so nothing covers the game until you need it. Each time a stream starts, hints point at them and then fade out.
 
-| Corner       | What it does                                                            |
-| ------------ | ----------------------------------------------------------------------- |
-| Top right    | Tap, then the gear, for the stream menu                                 |
-| Top left     | Tap, then the Xbox logo (Steam's Guide button) or the keyboard          |
-| Bottom right | Turn [frame generation](picture.md#frame-generation) on and off         |
-| Bottom left  | Mute or unmute the mic, when [voice chat](audio.md#voice-chat) is on    |
+| Corner       | What it does                                                         |
+| ------------ | -------------------------------------------------------------------- |
+| Top right    | Tap, then the gear, for the stream menu                              |
+| Top left     | Tap, then the Xbox logo (Steam's Guide button) or the keyboard       |
+| Bottom right | Turn [frame generation](picture.md#frame-generation) on and off      |
+| Bottom left  | Mute or unmute the mic, when [voice chat](audio.md#voice-chat) is on |
 
 With a controller, hold **View + Menu** for a second to open the stream menu.
 
@@ -23,6 +23,7 @@ The game keeps running behind the menu. From it you can:
 - See the resolution, frame rate, bitrate, codec and HDR the stream asked for, and the size the PC is actually streaming at.
 - [Check connection](connection.md#check-connection).
 - Change display, controller, virtual controls and audio settings mid-game.
+- [Share diagnostics](troubleshooting.md#reporting-a-problem) or report a problem, without leaving the game.
 
 ## Typing with the keyboard
 

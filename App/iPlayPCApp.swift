@@ -2,7 +2,7 @@ import SwiftUI
 import os
 
 let logSubsystem = Bundle.main.bundleIdentifier ?? "iplaypc"
-let log = Logger(subsystem: logSubsystem, category: "app")
+let log = AppLog(subsystem: logSubsystem, category: "app")
 
 /// Development: launched with `-console` (devicectl --console), streaming logs go to stderr too
 let mirrorsLogToConsole = ProcessInfo.processInfo.arguments.contains("-console")
