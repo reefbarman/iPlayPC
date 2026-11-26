@@ -289,6 +289,56 @@ final class MetalRenderer {
 		}
 	}
 
+	/// The last real frame, whole and at the stream's own resolution: no black bars,
+	/// no zoom crop and no upscaling. HDR is tone mapped to sRGB. For Screenshot.
+	func renderScreenshot() async throws -> CGImage {
+		guard let frame = lock.withLock({ screenshotFrame }),
+			let luma = CVMetalTextureGetTexture(frame.luma), let chroma = CVMetalTextureGetTexture(frame.chroma)
+		else { throw StreamScreenshot.ScreenshotError.noFrame }
+		// The CoreVideo wrappers keep the decoded surfaces alive until the GPU has read them
+		defer { withExtendedLifetime(frame) {} }
+		let width = luma.width, height = luma.height
+		guard width > 0, height > 0 else { throw StreamScreenshot.ScreenshotError.noFrame }
+		let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,
+			width: width, height: height, mipmapped: false)
+		descriptor.usage = .renderTarget
+		descriptor.storageMode = .shared
+		guard let texture = device.makeTexture(descriptor: descriptor), let buffer = queue.makeCommandBuffer() else {
+			throw StreamScreenshot.ScreenshotError.renderFailed
+		}
+		var uniforms = frame.uniforms
+		uniforms.ndcScale = .one
+		uniforms.uvOrigin = .zero
+		uniforms.uvSize = .one
+		uniforms.bicubic = 0
+		guard draw(luma: luma, chroma: chroma, uniforms: &uniforms, to: texture, in: buffer) else {
+			throw StreamScreenshot.ScreenshotError.renderFailed
+		}
+		try await withCheckedThrowingContinuation { (completion: CheckedContinuation<Void, Error>) in
+			buffer.addCompletedHandler { finished in
+				if finished.status == .completed { completion.resume() }
+				else { completion.resume(throwing: finished.error ?? StreamScreenshot.ScreenshotError.renderFailed) }
+			}
+			buffer.commit()
+		}
+
+		let rowBytes = width * 4
+		var pixels = Data(count: height * rowBytes)
+		pixels.withUnsafeMutableBytes { bytes in
+			texture.getBytes(bytes.baseAddress!, bytesPerRow: rowBytes,
+				from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+		}
+		let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue))
+		let profile = uniforms.transferMode == 3 ? CGColorSpace.sRGB : CGColorSpace.itur_709
+		guard let colourSpace = CGColorSpace(name: profile),
+			let provider = CGDataProvider(data: pixels as CFData),
+			let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+				bytesPerRow: rowBytes, space: colourSpace, bitmapInfo: bitmapInfo, provider: provider,
+				decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+		else { throw StreamScreenshot.ScreenshotError.renderFailed }
+		return image
+	}
+
 	// MARK: - Rendering (decoder thread)
 
 	/// The stream lost frames before the next one to be decoded. Video thread

@@ -45,6 +45,8 @@
 	<string>iPlayPC finds and connects to PCs running Steam on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>iPlayPC sends your voice to your PC for voice chat when Microphone is on in settings.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Screenshots you take from the stream menu are saved to your photo library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

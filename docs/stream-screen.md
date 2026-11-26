@@ -17,7 +17,7 @@ With a controller, hold **View + Menu** for a second to open the stream menu.
 
 The game keeps running behind the menu. From it you can:
 
-- **Resume**, **Type with the keyboard** and **Mute microphone**.
+- **Resume**, **Type with the keyboard**, **Save screenshot to Photos** and **Mute microphone**.
 - **Quit game** and **Quit** (see [Quitting](#quitting)).
 - See the phone's battery and temperature.
 - See the resolution, frame rate, bitrate, codec and HDR the stream asked for, and the size the PC is actually streaming at.
@@ -30,6 +30,12 @@ The game keeps running behind the menu. From it you can:
 Tap the screen with three fingers, tap the top-left corner and then the keyboard button, or choose **Type with the keyboard** in the stream menu. Do the same again to close it.
 
 What you type goes to whatever has focus on the PC, such as a search box in Big Picture, password fields included. A bar above the keyboard adds Esc, Tab and the arrow keys. If a game or Steam asks for text, the keyboard opens by itself.
+
+## Screenshots
+
+Open the stream menu and choose **Save screenshot to Photos**. The game keeps running behind the menu, so the screenshot shows the moment you choose it.
+
+It's the whole game picture at the stream's resolution, without the virtual controls or black bars, and HDR games are converted to normal colour. The first time, iOS asks to let iPlayPC add photos. It can only add photos, not see your library.
 
 ## Quitting
 

@@ -12,8 +12,9 @@ This policy covers iPlayPC however you installed it: by sideloading, from TestFl
 - **Pairing keys:** the key Steam gives iPlayPC when you pair with a PIN, one per PC, kept in the iOS Keychain. **Forget** in a PC's settings removes it.
 - **Device ID:** a random ID made when the app first runs, kept in the iOS Keychain. Steam uses it to tell paired devices apart. It isn't linked to your phone's hardware or Apple ID.
 - **Settings:** your settings and the bitrates **Auto bitrate** has learned (each Wi-Fi network is remembered by its local address range, not its name).
+- **Screenshots:** saved to your photo library, and only when you take them.
 
-Deleting the app removes everything except Keychain items, which can outlast the app on some iOS versions. Forgetting each PC first removes its pairing key.
+Deleting the app removes everything except screenshots you've saved to Photos and Keychain items, which can outlast the app on some iOS versions. Forgetting each PC first removes its pairing key.
 
 ## Who iPlayPC talks to
 
@@ -28,6 +29,7 @@ Nothing is sent anywhere else. What Steam on your PC does is covered by Valve's 
 
 - **Local Network:** to find, pair with and stream from PCs on your network.
 - **Microphone:** only used while **Microphone** is on in settings, to send your voice to the PC for voice chat.
+- **Photos (add only):** to save screenshots you take from the stream menu. iPlayPC can't see your photo library.
 
 ## Diagnostics
 

@@ -17,8 +17,9 @@ The highlights are below. The [guides](https://reefbarman.github.io/iPlayPC/) (a
 - **Gyro aiming:** turn the controller (or the phone) to aim with the right stick, even in games without gyro support. [Controllers](docs/controllers.md#gyro-aiming)
 - **Virtual controls and touch:** on-screen sticks and buttons when you don't have a controller, touch as a mouse for the desktop, and the iPhone keyboard for typing. [Touch and virtual controls](docs/touch-and-virtual-controls.md)
 - **A connection that looks after itself:** Auto bitrate learns what works for each PC on each network, Check connection suggests a bitrate, and the stream reconnects after a dropout. [Connection](docs/connection.md)
+- **Keeps playing in the background:** the game audio carries on and the stream stays connected while you check another app. [Audio](docs/audio.md#keep-playing-in-the-background)
 - **Voice chat:** the phone's mic shows up as the PC's microphone, with a mute button on the stream. [Audio](docs/audio.md)
-- **Handy extras:** **Quit game** drops you back in Big Picture, and the stream menu shows battery and temperature. [The stream screen](docs/stream-screen.md)
+- **Handy extras:** **Quit game** drops you back in Big Picture, **Save screenshot to Photos** keeps the game picture, and the stream menu shows battery and temperature. [The stream screen](docs/stream-screen.md)
 - **Made for the iPhone Duo:** streams on the inner screen, waits on the outer one, and folding pauses the stream. [iPhone Duo](docs/iphone-duo.md)
 
 ## Install

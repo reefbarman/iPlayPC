@@ -44,6 +44,9 @@ struct StreamView: View {
 	@State private var noGameToQuit = false
 	/// The iPhone keyboard is up, typing into the game
 	@State private var showKeyboard = false
+	/// Screenshot from the menu: saving now, or just saved
+	@State private var screenshotState: ScreenshotState?
+	@State private var screenshotError: StreamScreenshot.ScreenshotError?
 	/// Auto bitrate's key for this PC on the Wi-Fi network the stream started on (nil on mobile data)
 	@State private var bitrateKey: String?
 
@@ -801,6 +804,7 @@ struct StreamView: View {
 		return [
 			GamepadRow(id: "resume", confirmLabel: "Resume", activate: { showMenu = false }),
 			GamepadRow(id: "keyboard", confirmLabel: "Open", activate: openKeyboardFromMenu),
+			GamepadRow(id: "screenshot", confirmLabel: "Save", activate: takeScreenshot),
 		] + mic + [
 			GamepadRow(id: "quitGame", confirmLabel: quitGameArmed ? "Confirm" : "Quit game", activate: {
 				if quitGameArmed { quitGame() } else { quitGameArmed = true }
@@ -841,6 +845,15 @@ struct StreamView: View {
 						.gamepadRow("resume")
 					Button("Type with the keyboard", action: openKeyboardFromMenu)
 						.gamepadRow("keyboard")
+					Button(action: takeScreenshot) {
+						switch screenshotState {
+						case .saving: Label("Saving screenshot…", systemImage: "camera")
+						case .saved: Label("Saved to Photos", systemImage: "checkmark.circle")
+						case nil: Label("Save screenshot to Photos", systemImage: "camera")
+						}
+					}
+					.disabled(screenshotState == .saving || session?.renderer == nil)
+					.gamepadRow("screenshot")
 					if let session, session.micActive {
 						Button(session.micMuted ? "Unmute microphone" : "Mute microphone") {
 							session.toggleMicMuted()
@@ -919,10 +932,48 @@ struct StreamView: View {
 				quitGameArmed = false
 				noGameToQuit = false
 			}
+			.task(id: screenshotState) {
+				guard screenshotState == .saved else { return }
+				try? await Task.sleep(for: .seconds(3))
+				guard !Task.isCancelled else { return }
+				screenshotState = nil
+			}
+			.alert("Couldn't save screenshot", isPresented: Binding(
+				get: { screenshotError != nil }, set: { if !$0 { screenshotError = nil } }
+			), presenting: screenshotError) { error in
+				if case .notAllowed = error {
+					Button("Open Settings") {
+						if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+					}
+				}
+				Button("OK", role: .cancel) {}
+			} message: { error in
+				Text(error.localizedDescription)
+			}
 		}
 		// The Controller Test (on the Controller page) borrows the stream's controller while it's open
 		.environment(\.lendController, { [weak session] lend in session?.lendController(lend) })
 	}
+
+	/// Saves the picture as it is now (the game keeps running behind the menu)
+	private func takeScreenshot() {
+		guard screenshotState != .saving, let renderer = session?.renderer else { return }
+		screenshotState = .saving
+		Task { @MainActor in
+			do {
+				try await StreamScreenshot.save(renderer: renderer)
+				screenshotState = .saved
+			} catch {
+				log.error("Screenshot failed: \(error, privacy: .public)")
+				screenshotState = nil
+				screenshotError = error as? StreamScreenshot.ScreenshotError ?? .renderFailed
+			}
+		}
+	}
+}
+
+private enum ScreenshotState {
+	case saving, saved
 }
 
 /// Stats, centred along the top. With a letterboxed picture they sit in the black bar
