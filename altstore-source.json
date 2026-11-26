@@ -19,6 +19,14 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "0.2.0",
+          "date": "2026-11-26T01:00:48Z",
+          "downloadURL": "https://github.com/reefbarman/iPlayPC/releases/download/v0.2.0/iPlayPC.ipa",
+          "size": 8997549,
+          "minOSVersion": "17.0",
+          "localizedDescription": "See the release notes on GitHub."
+        },
+        {
           "version": "0.1.0",
           "date": "2026-11-24T22:31:37Z",
           "downloadURL": "https://github.com/reefbarman/iPlayPC/releases/download/v0.1.0/iPlayPC.ipa",
